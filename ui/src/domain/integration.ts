@@ -1,5 +1,6 @@
 export type {
   CandidateTermsInput,
+  InjectedWalletSummary,
   ProofFlowStatus,
   ProofMatchUiApi,
   PublicJobState,

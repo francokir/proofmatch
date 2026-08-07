@@ -3,10 +3,16 @@ import { toHex } from '@midnight-ntwrk/midnight-js-utils';
 
 import type { CandidatePrivateInputs } from '../../candidate-private-state';
 import type { ProofMatchPublicState } from '../public-state';
-import { LaceConnectionError, type LaceWalletStatus } from './lace';
+import {
+  LaceConnectionError,
+  describeInjectedWallets,
+  waitForLaceInitialApi,
+  type LaceWalletStatus,
+} from './lace';
 import { connectProofMatchLace, type LaceProofMatchClient } from './client';
 import type {
   CandidateTermsInput,
+  InjectedWalletSummary,
   ProofFlowStatus,
   ProofMatchUiApi,
   PublicJobState,
@@ -79,6 +85,14 @@ export function createProofMatchUiApi(options: CreateProofMatchUiApiOptions): Br
     wallet: {
       get status(): LaceWalletStatus {
         return walletStatus;
+      },
+      async detectWallet(): Promise<WalletStatus> {
+        if (walletStatus === 'connected' || walletStatus === 'connecting') return walletStatus;
+        walletStatus = (await waitForLaceInitialApi()) ? 'detected' : 'not_detected';
+        return walletStatus;
+      },
+      injectedWallets(): InjectedWalletSummary[] {
+        return describeInjectedWallets();
       },
       async connectWallet(): Promise<void> {
         walletStatus = 'connecting';

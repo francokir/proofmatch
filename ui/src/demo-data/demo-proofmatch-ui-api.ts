@@ -17,6 +17,10 @@ export const demoContractAddress = 'DEMO CONTRACT REFERENCE';
 export const demoProofMatchUiApi: ProofMatchUiApi = {
   wallet: {
     get status() { return walletStatus; },
+    // The demo shell has no extension behind it: it reports the simulated
+    // wallet as present so the header does not accuse Lace of being missing.
+    async detectWallet() { walletStatus = 'detected'; return walletStatus; },
+    injectedWallets() { return []; },
     async connectWallet() { walletStatus = 'connecting'; await Promise.resolve(); walletStatus = 'connected'; },
   },
   async prepareCandidatePrivateState() { await Promise.resolve(); },
