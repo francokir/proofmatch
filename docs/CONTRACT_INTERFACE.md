@@ -832,3 +832,125 @@ npm run test:e2e:v2                # E2E real contra devnet
 
 Sin frontend, sin Private Match Profile multi-job, sin Consent Reveal UX, sin
 Match Pass, sin Privacy Receipt. Etapas 2 y 3.
+
+---
+
+# V2 — Etapa 2: perfil, preview y Consent Reveal
+
+Todo lo de esta sección vive **encima** del contrato: no cambió una línea de
+`proofmatch-job-v2.compact`. Son capacidades de la capa de aplicación, y por eso
+se verifican con hashes recomputados localmente, no con circuitos nuevos.
+
+## Private Match Profile
+
+`src/proofmatch-v2/profile.ts`
+
+Un perfil laboral **reutilizable entre vacantes**. El candidato lo completa una
+vez y todas las vacantes lo usan:
+
+```ts
+interface PrivateMatchProfile {
+  minimumCompensation: bigint;      // USD mensuales enteros
+  availableWeeklyHours: bigint;     // horas por semana
+  acceptedWorkModes: readonly WorkMode[];
+  locationX: bigint;                // metros
+  locationY: bigint;
+  maximumCommuteRadius: bigint;
+  maximumOnsiteDays?: bigint;       // aún no lo exige el contrato
+}
+```
+
+**Lo que el perfil NO contiene, y es lo importante:** ningún secreto, opening ni
+nullifier. Eso sigue siendo **por vacante**, en el private state de Midnight. Si
+el perfil llevara un secreto compartido, el mismo candidato sería reconocible
+entre vacantes — justo lo que la derivación con `kernel.self()` evita. Hay un
+test que lo comprueba, y el E2E verifica que el archivo del perfil no contenga
+material per-job.
+
+**Por qué un archivo y no el private-state provider:** ese provider namespacea
+todo por dirección de contrato y exige `setContractAddress`, así que
+estructuralmente no puede guardar algo compartido entre vacantes. El store por
+archivo escribe con permisos `0600` y cae bajo `*-state/` en `.gitignore`. Hay
+también un store en memoria, para tests y para que una capa browser lo sustituya.
+
+## Multi-job Private Preview
+
+`previewJobs(jobs, profile)` clasifica varias vacantes **localmente, sin red y
+sin revelar nada**:
+
+| Resultado | Condición |
+|---|---|
+| `GUARANTEED` | `minimum <= salaryBandFloor` |
+| `NEGOTIATION_ZONE` | `floor < minimum <= ceiling` |
+| `NO_FIT` | `minimum > ceiling` |
+
+Más horas, modalidad y commute. El preview replica exactamente lo que valida el
+circuito, incluido el borde del radio — hay un test que compara ambos.
+
+**Un preview verde no es un match.** Solo la vacante que el candidato elige
+genera una prueba real. Generar cinco pruebas automáticamente sería desperdicio
+y fuga de privacidad.
+
+## Consent Reveal
+
+`src/proofmatch-v2/consent-reveal.ts`
+
+Durante el match el contrato guarda **commitments, no valores**. Después, si
+ambas partes quieren avanzar, una entrega el valor y su opening; la otra
+recomputa el commitment y lo compara con el que ya está en el ledger.
+
+```ts
+const pkg = createRevealPackage({
+  field: 'candidateSalary', contractAddress, nullifier, value, opening,
+});
+const verdict = verifyRevealPackage(pkg, publicState, contractAddress);
+// { valid: true, field, value } | { valid: false, reason }
+```
+
+Tres campos revelables: `candidateSalary`, `candidateHours`,
+`employerSalaryCap`. Cada uno con su propio opening, así que **revelar el
+salario no revela las horas** — consentimiento por campo.
+
+**No requiere circuito.** La verificación es una recomputación local de
+`persistentCommit` con el mismo tipo de runtime que usa el contrato
+(`Uint<64>` para salario y cap, `Uint<8>` para horas — usar el ancho equivocado
+cambia la codificación y el commitment nunca coincide).
+
+**Transporte:** el paquete es un string JSON. Copy/paste, QR, archivo — cualquier
+canal. No hace falta backend.
+
+Qué garantiza, verificado por tests y por el E2E real:
+
+- un opening correcto valida contra el commitment del ledger;
+- un valor alterado **no** valida;
+- un opening alterado **no** valida;
+- un reveal del job A **no** valida contra el job B;
+- un nullifier que no está en el `Map` **no** valida;
+- la empresa no puede afirmar un cap distinto del que fijó antes del match.
+
+Eso último es lo que da la frase: **ninguna de las dos partes puede mover el
+arco después.**
+
+## Service
+
+`createProofMatchV2Service(providers, zkConfigPath, profileStore?)` suma:
+
+```
+createOrLoadPrivateProfile   updatePrivateProfile
+prepareCandidateStateFromProfile   previewJobs
+createRevealPackage   verifyRevealPackage
+resetV2Demo
+```
+
+El `profileStore` es opcional: sin él, el service funciona igual para todo lo
+que no toca el perfil.
+
+## Comandos
+
+```bash
+npx tsx scripts/proofmatch-v2-stage2-e2e.ts   # E2E real de Stage 2
+```
+
+Todavía no tiene alias en `package.json` para no colisionar con los cambios de
+dependencias que Coqui tiene sin mergear. Conviene agregar
+`"test:e2e:v2:stage2"` cuando su rama entre.

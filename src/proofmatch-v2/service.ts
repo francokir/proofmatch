@@ -12,6 +12,19 @@ import {
   type ProofMatchV2PublicState,
 } from './public-state';
 import {
+  createOrLoadPrivateProfile,
+  updatePrivateProfile,
+  type PrivateMatchProfile,
+  type PrivateMatchProfileStore,
+} from './profile';
+import {
+  createRevealPackage,
+  verifyRevealPackage,
+  type RevealField,
+  type RevealPackage,
+  type RevealVerdict,
+} from './consent-reveal';
+import {
   prepareCandidateV2PrivateState,
   prepareEmployerV2PrivateState,
   resetCandidateV2PrivateState,
@@ -109,6 +122,51 @@ export function previewPrivateFit(
   };
 }
 
+/**
+ * Turns the reusable profile into the per-job inputs the circuit needs.
+ *
+ * The profile is shared across vacancies; the secret and the openings are not,
+ * and they are added later by `prepareCandidateState` against the real contract
+ * address. That split is what keeps a candidate unlinkable between jobs.
+ */
+export function candidateInputsFromProfile(profile: PrivateMatchProfile): CandidateV2Inputs {
+  return {
+    minimumCompensation: profile.minimumCompensation,
+    availableWeeklyHours: profile.availableWeeklyHours,
+    acceptedWorkModes: profile.acceptedWorkModes,
+    locationX: profile.locationX,
+    locationY: profile.locationY,
+    commuteRadius: profile.maximumCommuteRadius,
+  };
+}
+
+/** One vacancy as seen by the multi-job preview. */
+export interface JobPreview {
+  readonly contractAddress: string;
+  readonly publicState: ProofMatchV2PublicState;
+  readonly fit: PrivateFitPreview;
+}
+
+/**
+ * Classifies several vacancies against one profile, entirely locally.
+ *
+ * Nothing is proven and nothing is sent: this is the screen where a candidate
+ * sees "3 potential fits, 2 no fit" before deciding which single vacancy is
+ * worth a real proof. Generating five proofs automatically would be both
+ * wasteful and a privacy leak.
+ */
+export function previewJobs(
+  jobs: ReadonlyArray<{ contractAddress: string; publicState: ProofMatchV2PublicState }>,
+  profile: PrivateMatchProfile,
+): JobPreview[] {
+  const inputs = candidateInputsFromProfile(profile);
+  return jobs.map((job) => ({
+    contractAddress: job.contractAddress,
+    publicState: job.publicState,
+    fit: previewPrivateFit(job.publicState, inputs),
+  }));
+}
+
 type Providers = ReturnType<typeof createMidnightProviders>;
 
 /** Minimal shape of the deployed-contract handle this service drives. */
@@ -148,14 +206,55 @@ export interface ProofMatchV2Service {
     candidate: CandidateV2Inputs,
   ): PrivateFitPreview;
 
+  // ─── Private Match Profile: one profile, many vacancies ───────────────────
+  createOrLoadPrivateProfile(fallback: PrivateMatchProfile): Promise<PrivateMatchProfile>;
+  updatePrivateProfile(changes: Partial<PrivateMatchProfile>): Promise<PrivateMatchProfile>;
+  /** Derives this job's private state from the reusable profile. */
+  prepareCandidateStateFromProfile(
+    contractAddress: string,
+    profile: PrivateMatchProfile,
+  ): Promise<ProofMatchV2PrivateState>;
+  /** Local, network-free classification of several vacancies at once. */
+  previewJobs(
+    jobs: ReadonlyArray<{ contractAddress: string; publicState: ProofMatchV2PublicState }>,
+    profile: PrivateMatchProfile,
+  ): JobPreview[];
+
+  // ─── Consent Reveal ───────────────────────────────────────────────────────
+  createRevealPackage(input: {
+    field: RevealField;
+    contractAddress: string;
+    nullifier?: Uint8Array;
+    value: bigint;
+    opening: Uint8Array;
+  }): RevealPackage;
+  verifyRevealPackage(
+    pkg: RevealPackage,
+    publicState: ProofMatchV2PublicState,
+    contractAddress: string,
+  ): RevealVerdict;
+
   lockPrivateBudget(job: DeployedV2Contract): Promise<unknown>;
   proveGuaranteedMatch(job: DeployedV2Contract): Promise<unknown>;
+
+  /** Clears this vacancy's candidate state and the stored profile. */
+  resetV2Demo(contractAddress: string): Promise<void>;
 }
 
 export function createProofMatchV2Service(
   providers: Providers,
   zkConfigPath: string,
+  profileStore?: PrivateMatchProfileStore,
 ): ProofMatchV2Service {
+  const requireProfileStore = (): PrivateMatchProfileStore => {
+    if (profileStore === undefined) {
+      throw new Error('ProofMatch V2: this service was created without a profile store');
+    }
+    return profileStore;
+  };
+  const candidateStateProvider = () =>
+    providers.privateStateProvider as unknown as ProofMatchV2StateProvider;
+
   return {
     deployJob: (options) => deployProofMatchV2Job(providers, zkConfigPath, options),
     joinJob: (options) => joinProofMatchV2Job(providers, zkConfigPath, options),
@@ -181,9 +280,29 @@ export function createProofMatchV2Service(
 
     previewPrivateFit,
 
+    createOrLoadPrivateProfile: (fallback) =>
+      createOrLoadPrivateProfile(requireProfileStore(), fallback),
+    updatePrivateProfile: (changes) => updatePrivateProfile(requireProfileStore(), changes),
+    prepareCandidateStateFromProfile: (address, profile) =>
+      prepareCandidateV2PrivateState(
+        candidateStateProvider(), address, candidateInputsFromProfile(profile),
+      ),
+    previewJobs,
+
+    createRevealPackage,
+    verifyRevealPackage,
+
     lockPrivateBudget: (job) => job.callTx.lockPrivateBudget(),
     proveGuaranteedMatch: (job) => job.callTx.proveGuaranteedMatch(),
+
+    async resetV2Demo(address) {
+      await resetCandidateV2PrivateState(candidateStateProvider(), address);
+      if (profileStore !== undefined) await profileStore.clear();
+    },
   };
 }
+
+export type { PrivateMatchProfile, PrivateMatchProfileStore } from './profile';
+export type { RevealField, RevealPackage, RevealVerdict } from './consent-reveal';
 
 export type { WorkMode };
