@@ -228,6 +228,33 @@ prohibidos sin excepción.
 
 ---
 
+## 2026-08-07 — `onchain-runtime-v3` fijado en 3.0.0 como dependencia directa
+
+La **matriz de compatibilidad oficial** de Midnight —Preview, Preprod y Mainnet—
+fija **on-chain runtime 3.0.0** para Midnight.js 4.1.1 y compact-runtime 0.16.0.
+`3.1.0` existe pero no está soportada en esta línea.
+
+**Por qué una dependencia directa y no solo confiar en la resolución:**
+`compact-runtime@0.16.0` pide `^3.0.0` y npm resolvía a 3.1.0, mientras
+`midnight-js-protocol@4.1.1` la pide con pin exacto `3.0.0`. Eso dejaba **dos
+copias físicas** del paquete. Como es `wasm-bindgen`, cada copia define su propia
+clase `StateValue`: un objeto creado por una fallaba el `instanceof` de la otra
+con `expected instance of StateValue`, rompiendo cualquier `callTx`.
+
+Declararla en `dependencies` fuerza una única copia que satisface a ambos
+parents. `overrides` **no** sirve: iguala las versiones pero deja las dos copias
+anidadas y el mismatch persiste — verificado.
+
+**Revisar esta decisión si se actualiza el toolchain.** Está acoplada a
+`compact-runtime` y a `midnight-js-protocol`: si cualquiera de los dos cambia de
+versión, hay que volver a la matriz oficial y realinear los tres a la vez.
+Midnight.js 5.0.0 ya migra a `onchain-runtime-v4` bajo otro scope.
+
+**Evidencia:** repro `callTx` before/after contra devnet local, y
+`npm ls @midnight-ntwrk/onchain-runtime-v3` mostrando una sola copia deduplicada.
+
+---
+
 ## Plantilla para nuevas decisiones
 
 ```markdown
