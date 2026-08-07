@@ -1,0 +1,24 @@
+# Metadata de Windows al copiar archivos a WSL — nunca versionar
+*:Zone.Identifier
+
+# Secretos — nunca versionar (ver AGENTS.md)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.seed
+*.mnemonic
+
+# Dependencias y build
+node_modules/
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
