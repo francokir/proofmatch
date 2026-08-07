@@ -20,7 +20,11 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { type Witnesses } from '../contracts/managed/proofmatch-job/contract/index.js';
-import { createCandidatePrivateState, type CandidatePrivateState } from './witnesses.js';
+import {
+  createCandidatePrivateState,
+  testSecret,
+  type CandidatePrivateState,
+} from './witnesses.js';
 import {
   deployJob,
   readLedger,
@@ -47,6 +51,7 @@ const lyingWitnesses = (
 ): Witnesses<CandidatePrivateState> => ({
   candidateMinimumCompensation: ({ privateState }) => [privateState, compensation],
   candidateAvailableWeeklyHours: ({ privateState }) => [privateState, hours],
+  candidateSecret: ({ privateState }) => [privateState, privateState.secret],
 });
 
 type ProveMatchOutcome = {
@@ -221,8 +226,11 @@ describe('proveMatch — la escritura publica ocurre despues de todas las valida
       writeHappensAfterAllReads(transcript),
       'el incremento de matchCount debe ir despues de todas las lecturas de ledger',
     );
-    // Exactamente una escritura: el `addi` y su `ins`. Nada mas muta.
-    assert.equal(countWriteOps(transcript), 2);
+    // Las unicas mutaciones son insertar el nullifier e incrementar matchCount.
+    // El conteo exacto de ops depende del codegen; lo que importa es que
+    // ninguna precede a la ultima lectura, que es lo que afirma la linea de
+    // arriba. Se fija el numero para detectar una escritura inesperada nueva.
+    assert.equal(countWriteOps(transcript), 4);
   });
 
   it('la comprobacion detecta un contrato que muta antes de validar', async () => {
@@ -302,21 +310,29 @@ describe('proveMatch — contabilidad de matchCount', () => {
     assert.equal(outcome.after, 1n);
   });
 
-  it('dos matches validos consecutivos llevan matchCount a exactamente 2', () => {
-    // Sin nullifier todavia, nada impide que el mismo candidato matchee dos
-    // veces. Este test fija la contabilidad actual; la deduplicacion llega en
-    // contract/job-nullifier.
-    const privateState = createCandidatePrivateState(4_000n, 45n);
+  it('dos candidatos distintos llevan matchCount a exactamente 2', () => {
+    // Desde contract/job-nullifier, el segundo match tiene que venir de OTRO
+    // candidato: el mismo secreto queda bloqueado por su nullifier. Ese caso
+    // esta cubierto en tests/proofmatch-nullifier.test.ts.
+    let secret = testSecret(1);
+    const perCandidate: Witnesses<CandidatePrivateState> = {
+      candidateMinimumCompensation: ({ privateState }) => [privateState, 4_000n],
+      candidateAvailableWeeklyHours: ({ privateState }) => [privateState, 45n],
+      candidateSecret: ({ privateState }) => [privateState, secret],
+    };
+
     const { contract, context } = deployJob(
       JOB_ID,
       JOB_MAX_COMPENSATION,
       JOB_REQUIRED_HOURS,
-      privateState,
+      createCandidatePrivateState(4_000n, 45n),
+      perCandidate,
     );
 
     const first = contract.impureCircuits.proveMatch(context);
     assert.equal(readLedger(first.context).matchCount, 1n);
 
+    secret = testSecret(2);
     const second = contract.impureCircuits.proveMatch(first.context);
     assert.equal(readLedger(second.context).matchCount, 2n);
   });
@@ -325,9 +341,11 @@ describe('proveMatch — contabilidad de matchCount', () => {
     // Una sola instancia de contrato y una sola cadena de contextos. Lo que
     // varía entre llamadas es lo que devuelve el witness, no el contrato.
     let declared = { compensation: 4_000n, hours: 45n };
+    let secret = testSecret(1);
     const swappableWitnesses: Witnesses<CandidatePrivateState> = {
       candidateMinimumCompensation: ({ privateState }) => [privateState, declared.compensation],
       candidateAvailableWeeklyHours: ({ privateState }) => [privateState, declared.hours],
+      candidateSecret: () => [{ minimumCompensation: 0n, availableWeeklyHours: 0n, secret }, secret],
     };
 
     const { contract, context } = deployJob(
@@ -341,14 +359,15 @@ describe('proveMatch — contabilidad de matchCount', () => {
     const first = contract.impureCircuits.proveMatch(context);
     assert.equal(readLedger(first.context).matchCount, 1n);
 
-    // Mismo contrato, mismo contexto encadenado, candidato ahora incompatible.
+    // Segundo candidato, incompatible.
+    secret = testSecret(2);
     declared = { compensation: JOB_MAX_COMPENSATION + 1n, hours: 45n };
     assert.throws(
       () => contract.impureCircuits.proveMatch(first.context),
       /compensation not compatible/,
     );
 
-    // El fallo no consumió el contexto: la siguiente llamada válida va de 1 a 2.
+    // Su intento fallido no consumio su nullifier: corrige y matchea. 1 -> 2.
     declared = { compensation: 4_000n, hours: 45n };
     const second = contract.impureCircuits.proveMatch(first.context);
     assert.equal(readLedger(second.context).matchCount, 2n);

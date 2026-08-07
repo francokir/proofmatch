@@ -1,19 +1,18 @@
 // Fixture de test. NO forma parte del contrato de ProofMatch y no se compila
 // con `npm run compile`; lo compila la suite de tests bajo demanda.
 //
-// Reproduce el estado público y el circuito `proveMatch` de
-// contracts/proofmatch-job.compact, pero su constructor ignora los argumentos y
-// escribe términos que el constructor real jamás produciría:
-// jobMaximumCompensation = 0 y jobRequiredWeeklyHours = 200.
+// Su constructor ignora los argumentos y escribe terminos que el constructor
+// real jamas produciria: jobMaximumCompensation = 0 y
+// jobRequiredWeeklyHours = 200.
 //
 // Modela la amenaza real: los `assert` de un constructor de Compact no los
-// verifica la cadena, así que un deployer que arme el ContractDeploy a mano
-// puede publicar una vacante con términos imposibles. El circuito `proveMatch`
-// sí corre bajo prueba, y debe rechazarlos.
-//
-// Si cambia el estado público del contrato real, este fixture queda
-// desincronizado: el test `los fixtures declaran el mismo estado publico que el
-// contrato real` lo detecta.
+// verifica la cadena, asi que un deployer que arme el ContractDeploy a mano
+// puede publicar una vacante con terminos imposibles. El circuito `proveMatch`
+// si corre bajo prueba, y debe rechazarlos.
+// GENERADO A PARTIR DE contracts/proofmatch-job.compact.
+// El circuito `proveMatch` y la derivacion del nullifier son copia literal del
+// contrato real. El test `los fixtures copian el circuito real sin desviarse`
+// falla si esta copia se desincroniza. Para regenerar, ver ese test.
 
 pragma language_version >= 0.23;
 
@@ -29,9 +28,42 @@ export sealed ledger jobMaximumCompensation: Uint<64>;
 export sealed ledger jobRequiredWeeklyHours: Uint<8>;
 export ledger jobState: JobState;
 export ledger matchCount: Counter;
+export ledger usedNullifiers: Set<Bytes<32>>;
 
 witness candidateMinimumCompensation(): Uint<64>;
 witness candidateAvailableWeeklyHours(): Uint<8>;
+
+// Secreto estable del candidato, 32 bytes. Lo provee el DApp desde el private
+// state y nunca sale de la maquina del candidato: solo se publica el hash
+// derivado. Dos postulaciones del mismo candidato a la misma vacante producen
+// el mismo nullifier; a otra vacante, uno distinto.
+witness candidateSecret(): Bytes<32>;
+
+// Deriva el nullifier especifico de este candidato en ESTA vacante.
+//
+// Tres entradas, cada una por una razon:
+//
+//   1. `pad(32, "proofmatch:job-nullifier:v1")` — domain separator. Impide que
+//      este hash colisione con cualquier otro uso del mismo secreto (por
+//      ejemplo, un futuro commitment, que debe usar un dominio distinto).
+//
+//   2. `kernel.self().bytes` — la direccion de esta instancia de contrato.
+//      Es el contexto de vacante, y es deliberadamente esto y NO `jobId`:
+//      `jobId` lo elige quien despliega y puede repetirse a proposito, asi que
+//      una vacante senuelo con el mismo `jobId` produciria el mismo nullifier
+//      que la legitima, permitiendo reconocer o bloquear a un candidato. La
+//      direccion, en cambio, es Sha256(estado inicial, nonce): no se puede
+//      elegir para colisionar sin romper SHA-256.
+//
+//   3. `sk` — el secreto del candidato, que es lo que hace el nullifier
+//      impredecible para terceros.
+circuit jobNullifier(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "proofmatch:job-nullifier:v1"),
+    kernel.self().bytes,
+    sk
+  ]);
+}
 
 constructor(
   id: Bytes<32>,
@@ -46,23 +78,53 @@ constructor(
 }
 
 export circuit proveMatch(): [] {
+  // 1. Revalidar los terminos publicos DENTRO del circuito.
+  //
+  // No alcanza con que el constructor los haya validado: sus `assert` corren
+  // en el cliente que despliega y la cadena no los verifica (ver el supuesto
+  // de confianza al inicio del archivo). Este circuito si se ejecuta bajo
+  // prueba, asi que es aca donde las invariantes obligan de verdad.
+  // Leer ledger publico no requiere `disclose`.
   assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
   assert(jobId != default<Bytes<32>>, "ProofMatch: malformed job terms");
   assert(jobMaximumCompensation > 0, "ProofMatch: malformed job terms");
   assert(jobRequiredWeeklyHours > 0, "ProofMatch: malformed job terms");
   assert(jobRequiredWeeklyHours <= 168, "ProofMatch: malformed job terms");
 
+  // 2. Traer los valores privados del candidato.
   const _minimumCompensation = candidateMinimumCompensation();
   const _availableWeeklyHours = candidateAvailableWeeklyHours();
+  const _secret = candidateSecret();
 
+  // 3. Validar el rango de los inputs privados antes de usarlos.
   assert(_minimumCompensation > 0, "ProofMatch: candidate compensation out of range");
   assert(_availableWeeklyHours > 0, "ProofMatch: candidate weekly hours out of range");
   assert(_availableWeeklyHours <= 168, "ProofMatch: candidate weekly hours out of range");
+  // Un secreto en cero es un private state sin inicializar: todos los
+  // candidatos en ese estado compartirian nullifier.
+  assert(_secret != default<Bytes<32>>, "ProofMatch: candidate secret not initialized");
 
+  // 4. Compatibilidad salarial. Ambos lados en USD mensuales enteros.
   assert(_minimumCompensation <= jobMaximumCompensation,
          "ProofMatch: compensation not compatible");
+
+  // 5. Compatibilidad horaria. Ambos lados en horas por semana.
   assert(_availableWeeklyHours >= jobRequiredWeeklyHours,
          "ProofMatch: weekly hours not compatible");
 
+  // 6. Derivar el nullifier. Va DESPUES de las dos condiciones a proposito: un
+  //    intento incompatible ni siquiera llega hasta aca, asi que no consume el
+  //    nullifier del candidato. Puede corregir sus valores y volver a intentar.
+  const _nullifier = jobNullifier(_secret);
+
+  // 7. Uso unico. `disclose` es necesario y deliberado: el nullifier tiene que
+  //    ser publico para que la red pueda rechazar el duplicado. Publica un hash
+  //    one-way, no el secreto.
+  assert(!usedNullifiers.member(disclose(_nullifier)),
+         "ProofMatch: candidate already matched this job");
+
+  // 8-9. Mutaciones publicas, solo despues de que TODO lo anterior paso. Un
+  //      assert que falla aborta el circuito completo: el ledger no cambia.
+  usedNullifiers.insert(disclose(_nullifier));
   matchCount += 1;
 }

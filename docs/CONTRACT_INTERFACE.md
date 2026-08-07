@@ -3,7 +3,7 @@
 Interfaz **real** del contrato Compact, tal como está hoy en el repositorio.
 Este documento describe únicamente lo que existe y compila. No documenta APIs futuras.
 
-**Etapa actual:** `contract/private-compatibility`
+**Etapa actual:** `contract/job-nullifier`
 **Fuente:** `contracts/proofmatch-job.compact`
 **Artefactos generados:** `contracts/managed/proofmatch-job/` (gitignored, se regeneran con `npm run compile`)
 **Compilador verificado:** Compact `0.31.1` · CLI `compact` `0.5.1` · `@midnight-ntwrk/compact-runtime` `0.16.0`
@@ -28,9 +28,9 @@ convención se fija acá y no se negocia por capa.
 | Valor | Unidad | Tipo |
 |---|---|---|
 | `jobMaximumCompensation` | **USD mensuales, enteros** | `Uint<64>` |
-| `candidateMinimumCompensation` *(próxima etapa)* | **USD mensuales, enteros** | mismo tipo |
+| `candidateMinimumCompensation` | **USD mensuales, enteros** | mismo tipo |
 | `jobRequiredWeeklyHours` | **horas por semana** | `Uint<8>` |
-| `candidateAvailableWeeklyHours` *(próxima etapa)* | **horas por semana** | mismo tipo |
+| `candidateAvailableWeeklyHours` | **horas por semana** | mismo tipo |
 
 Sin centavos, sin decimales, sin conversión de moneda, sin períodos anuales. Un
 salario de USD 3.500 por mes se representa como `3500n`.
@@ -56,9 +56,9 @@ export enum JobState {
 }
 ```
 
-En esta etapa `CLOSED` está declarado pero **ningún circuito puede transicionar
-hacia él**: no existen circuitos todavía. `closeJob` es scope de una etapa
-posterior y opcional.
+`CLOSED` está declarado pero **ningún circuito transiciona hacia él**:
+`closeJob` es scope de una etapa posterior y opcional. `proveMatch` sí verifica
+que la vacante esté `OPEN`, así que la guarda ya está lista para cuando exista.
 
 ---
 
@@ -75,6 +75,7 @@ de decidir si prueba compatibilidad.
 | `jobRequiredWeeklyHours` | `Uint<8>` | `bigint` | sí | Mínimo de **horas por semana** requeridas |
 | `jobState` | `JobState` | `JobState` | no | Estado de la vacante. Inicial: `OPEN` |
 | `matchCount` | `Counter` | `bigint` | no | Matches registrados. Inicial: `0` |
+| `usedNullifiers` | `Set<Bytes<32>>` | `Set` con `member`/`size`/iterador | no | Nullifiers ya consumidos. Inicial: vacío |
 
 `sealed` significa que el campo **solo puede escribirse durante la ejecución del
 constructor**. El compilador rechaza en tiempo de compilación cualquier circuito
@@ -167,6 +168,7 @@ jobMaximumCompensation = maximumCompensation
 jobRequiredWeeklyHours = requiredWeeklyHours
 jobState               = JobState.OPEN
 matchCount             = 0   (valor por defecto de Counter)
+usedNullifiers         = {}  (valor por defecto de Set)
 ```
 
 ---
@@ -191,16 +193,27 @@ Orden de ejecución:
 
 1. **Revalida los términos públicos** leyendo el ledger: `jobState == OPEN`,
    `jobId != 0`, `jobMaximumCompensation > 0`, `1 <= jobRequiredWeeklyHours <= 168`.
-2. Obtiene los dos valores privados llamando a los witnesses.
+2. Obtiene los tres valores privados llamando a los witnesses.
 3. **Valida el rango de los valores privados**: compensación `> 0`, horas entre
-   1 y 168.
+   1 y 168, secreto distinto de cero.
 4. `candidateMinimumCompensation <= jobMaximumCompensation`.
 5. `candidateAvailableWeeklyHours >= jobRequiredWeeklyHours`.
-6. Solo si todo lo anterior pasó: `matchCount += 1`.
+6. Deriva el nullifier de esta vacante.
+7. **Uso único**: el nullifier no debe estar ya en `usedNullifiers`.
+8. Registra el nullifier.
+9. `matchCount += 1`.
 
-Cualquier `assert` que falle aborta el circuito completo. No hay mutación
-pública parcial posible: `matchCount += 1` es la última instrucción y la única
-escritura.
+Cualquier `assert` que falle aborta el circuito completo. Las dos únicas
+escrituras son los pasos 8 y 9, y ambas van al final: verificado sobre el
+transcript público, donde las 8 operaciones de escritura son las últimas, después
+de todas las lecturas.
+
+**Los pasos 6-8 van deliberadamente después de 4 y 5.** Un candidato
+incompatible ni siquiera llega a derivar su nullifier, así que no lo consume:
+puede corregir sus valores y volver a intentar. Si el orden se invirtiera, un
+intento fallido quemaría el nullifier del candidato y lo dejaría afuera para
+siempre — hay un fixture, `proofmatch-job-mutates-first`, que reproduce
+exactamente ese bug y un test que verifica que la suite lo detecta.
 
 El paso 1 no es redundante. Los `assert` del constructor no los verifica la
 cadena (ver [Alcance real de estas invariantes](#alcance-real-de-estas-invariantes)),
@@ -215,8 +228,101 @@ invariantes obligan de verdad.
 | `malformed job terms` | algún término público fuera de rango |
 | `candidate compensation out of range` | compensación privada `== 0` |
 | `candidate weekly hours out of range` | horas privadas `== 0` o `> 168` |
+| `candidate secret not initialized` | el secreto privado es 32 bytes en cero |
 | `compensation not compatible` | el candidato pide más de lo que la vacante paga |
 | `weekly hours not compatible` | el candidato ofrece menos horas de las requeridas |
+| `candidate already matched this job` | el nullifier del candidato ya está registrado |
+
+---
+
+## Nullifier de uso único
+
+### Derivación
+
+```compact
+circuit jobNullifier(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "proofmatch:job-nullifier:v1"),
+    kernel.self().bytes,
+    sk
+  ]);
+}
+```
+
+Tres entradas, cada una con un propósito:
+
+| Entrada | Por qué |
+|---|---|
+| `pad(32, "proofmatch:job-nullifier:v1")` | **Domain separator.** Impide colisión con cualquier otro uso del mismo secreto. Cualquier derivación futura del mismo secreto —un commitment, o un handle de Consent Reveal— debe usar su propio dominio (`proofmatch:job-consent:v1`, etc.) y **no reusar el nullifier**: reusarlo lo convertiría de valor de un solo uso en pseudónimo estable dentro de la vacante. |
+| `kernel.self().bytes` | **Contexto de vacante.** La dirección de esta instancia. |
+| `sk` | El secreto del candidato: lo que hace el nullifier impredecible para terceros. |
+
+### Por qué `kernel.self()` y no `jobId`
+
+Esta es la decisión de diseño central de la etapa. `jobId` **no sirve** como
+contexto: lo elige quien despliega y puede repetirse a propósito. Si el
+nullifier fuera `hash(dominio, jobId, sk)`, un atacante podría desplegar una
+vacante señuelo con el mismo `jobId` que una legítima y obtener, para el mismo
+candidato, **el mismo nullifier**. Eso habilita dos ataques:
+
+- **Linkabilidad** — observar el nullifier en la vacante señuelo y reconocer al
+  mismo candidato en la legítima.
+- **Griefing** — adelantarse a insertar ese nullifier en la vacante legítima y
+  bloquear al candidato antes de que se postule.
+
+`kernel.self()` devuelve la dirección del contrato, que es
+`Sha256(estado inicial, nonce)`. No se puede elegir para colisionar con otra
+instancia sin romper SHA-256.
+
+### Propiedades verificadas
+
+Ejecutadas contra el contrato compilado, no deducidas:
+
+| Propiedad | Resultado |
+|---|---|
+| Mismo secreto + misma vacante → mismo nullifier | ✅ determinista |
+| Mismo secreto + otra vacante → nullifier distinto | ✅ |
+| Otro secreto + misma vacante → nullifier distinto | ✅ |
+| El nullifier **no** depende de compensación ni horas | ✅ el mismo secreto con valores distintos da el mismo nullifier |
+| Un duplicado no puede registrarse | ✅ rechazado por el `Set` dentro del circuito |
+| Un fallo de compatibilidad no consume el nullifier | ✅ el candidato puede reintentar |
+| La forma del transcript público es idéntica entre candidatos | ✅ 37 ops, misma secuencia — no hay canal lateral por la forma |
+
+### Qué es público y por qué
+
+El nullifier **es público**, y tiene que serlo: la red necesita verlo para
+rechazar el duplicado. Los dos `disclose(_nullifier)` del circuito son
+deliberados y necesarios.
+
+Publicar el nullifier no compromete al candidato: es un hash one-way de su
+secreto, y va ligado a esta instancia, así que **no permite reconocerlo en otra
+vacante**. Lo que sí revela, como cualquier match, es que *alguien* se postuló.
+
+### Lo que el nullifier no protege
+
+Tres límites, ninguno resoluble dentro del circuito:
+
+- **Acota un match por secreto, no por persona.** Un secreto nuevo es un
+  candidato nuevo a ojos del contrato, y los secretos se generan gratis. Hay un
+  test que lo deja explícito. Acotarlo de verdad requiere anclar el secreto a
+  algo escaso o atestiguado.
+- **Un DApp hostil puede quemar el nullifier del candidato.** Los tres witnesses
+  corren en el cliente: un front-end malicioso que tenga el secreto puede llamar
+  `proveMatch` con valores compatibles arbitrarios y consumir el nullifier en una
+  vacante que el candidato nunca eligió. Es un DoS dirigido sobre una
+  postulación, inherente a que el secreto viva en el cliente. Supuesto de
+  confianza sobre el DApp, igual que el declarado para el constructor.
+- **El nullifier queda vinculado al pagador de la transacción.** El circuito
+  protege el secreto, no la metadata: `usedNullifiers` es público y la
+  transacción que inserta el nullifier tiene un pagador de fees, así que un
+  observador enlaza *esa wallet* con *esta vacante*. El candidato es anónimo
+  respecto de su secreto, no respecto de su wallet. Mitigarlo requiere un
+  submitter distinto del candidato — decisión de la capa de integración.
+
+Lo que el nullifier **sí** resuelve, y es lo que el producto demuestra: un
+candidato no puede registrar dos matches en la misma vacante con el mismo
+secreto, ni reenviando la misma prueba, ni desde otro cliente. Y su nullifier en
+una vacante no lo delata en otra.
 
 ---
 
@@ -228,6 +334,7 @@ TypeScript desde el private state del usuario; el contrato solo los declara.
 ```compact
 witness candidateMinimumCompensation(): Uint<64>;   // USD mensuales enteros
 witness candidateAvailableWeeklyHours(): Uint<8>;   // horas por semana
+witness candidateSecret(): Bytes<32>;               // secreto estable del candidato
 ```
 
 Interfaz TypeScript generada, que es la que la capa de integración debe
@@ -237,8 +344,42 @@ implementar:
 export type Witnesses<PS> = {
   candidateMinimumCompensation(context: WitnessContext<Ledger, PS>): [PS, bigint];
   candidateAvailableWeeklyHours(context: WitnessContext<Ledger, PS>): [PS, bigint];
+  candidateSecret(context: WitnessContext<Ledger, PS>): [PS, Uint8Array];
 }
 ```
+
+### Requisitos de `candidateSecret` — para la capa de integración
+
+Esto es lo que el private state productivo tiene que garantizar. El contrato no
+puede verificarlo:
+
+- **32 bytes exactos.** El runtime rechaza cualquier otra longitud.
+- **No puede ser 32 bytes en cero.** El circuito lo rechaza explícitamente: un
+  secreto en cero significa private state sin inicializar, y todos los
+  candidatos en ese estado compartirían nullifier.
+- **DEBE venir de un CSPRNG** (`crypto.getRandomValues`), generado una única vez
+  y persistido. **NUNCA derivado de un identificador del usuario** — ni email,
+  ni DNI, ni PIN, ni un contador.
+
+  Esto no es una recomendación de estilo, es la condición de la que depende toda
+  la privacidad del esquema, y **el contrato no puede verificarla**. El nullifier
+  es `hash(dominio, direcciónDelContrato, secreto)`, y los dos primeros
+  componentes son públicos. Si el secreto sale de un espacio enumerable,
+  cualquiera puede recomputar el nullifier candidato por candidato y leer
+  `usedNullifiers` —que es público— para saber **quién se postuló a cada
+  vacante**. El circuito seguiría siendo correcto y la privacidad estaría rota.
+
+  `tests/witnesses.ts` tiene un `testSecret(seed)` determinista: está marcado
+  como test-only y es precisamente el antipatrón a no copiar.
+- **Estable en el tiempo.** Si el candidato regenera su secreto, el contrato lo
+  considera otra persona y puede volver a matchear. Debe persistir en el private
+  state entre sesiones.
+- **El mismo secreto para todas las vacantes.** No hace falta uno por vacante:
+  el contexto de vacante ya lo aporta `kernel.self()` dentro del circuito. Usar
+  uno distinto por vacante no aporta privacidad y rompe la deduplicación si el
+  candidato lo rota.
+- **Nunca sale de la máquina del candidato.** No se loguea, no se envía a la
+  empresa, no va a telemetría. Lo único que se publica es el hash derivado.
 
 **Un witness no es código confiable.** Cada DApp puede implementarlo como
 quiera, así que el circuito nunca asume que devuelve algo sensato: valida rango
@@ -261,6 +402,8 @@ integración y es ownership de Coqui.
 | `matchCount` | público |
 | `candidateMinimumCompensation` | **privado** |
 | `candidateAvailableWeeklyHours` | **privado** |
+| `candidateSecret` | **privado** — solo se publica su hash derivado |
+| nullifier derivado | público, y necesariamente |
 
 ### Recorrido de los valores privados
 
@@ -268,25 +411,31 @@ integración y es ownership de Coqui.
    el witness.
 2. El circuito los recibe y los compara contra los términos públicos.
 3. En el JS generado van a `partialProofData.privateTranscriptOutputs`, **nunca**
-   a `publicTranscript`.
+   a `publicTranscript`. Comprobado también por test: el secreto no aparece en
+   el transcript serializado, ni en hex ni como array de bytes.
 4. No se escriben en ningún campo del ledger y no se devuelven: `proveMatch`
    retorna `[]`.
 
-El circuito **no contiene ningún `disclose()`**. Los únicos tres del contrato
-están en el constructor, sobre los términos de la vacante, que son públicos por
-diseño.
+El circuito contiene exactamente **dos `disclose()`**, ambos sobre el mismo
+valor: el nullifier, que debe ser público para impedir el duplicado. Ni la
+compensación, ni las horas, ni el secreto se disclosan nunca. Los otros tres
+`disclose()` del contrato están en el constructor, sobre los términos de la
+vacante, que son públicos por diseño.
 
 ### Lo único que cambia públicamente tras un match válido
 
-`matchCount += 1`. El incremento es la constante `1`, no deriva de witness data.
-El argumento de un `Counter` sí es visible on-chain, pero aquí ese argumento es
-siempre `1`, así que no revela nada del candidato.
+Dos cosas: el nullifier entra en `usedNullifiers`, y `matchCount += 1`. El
+incremento es la constante `1`, así que no revela nada del candidato. El
+nullifier sí es un valor derivado de su secreto, pero es un hash one-way ligado
+a esta instancia — ver [Nullifier de uso único](#nullifier-de-uso-único).
 
 ### Qué garantiza el circuito y qué no
 
 **Garantiza** que existe un par de valores privados que satisface las dos
-condiciones y los rangos, y que `matchCount` solo sube si es así. Ni el
-frontend ni un witness manipulado pueden saltear un `assert`.
+condiciones y los rangos, que `matchCount` solo sube si es así, y que el mismo
+secreto no puede registrar dos matches en la misma vacante. Ni el frontend ni un
+witness manipulado pueden saltear un `assert`: no hay ningún parámetro por el
+que el caller pueda afirmar compatibilidad ni "nullifier sin usar".
 
 **No garantiza** que los valores declarados sean los verdaderos del candidato.
 El candidato se auto-declara: puede subdeclarar su compensación mínima o
@@ -379,6 +528,10 @@ escritas antes de construir encima.
 | El argumento de un `Counter` **sí** es visible on-chain | Misma tabla de visibilidad. Acá el argumento es siempre la constante `1` |
 | `matchCount += 1` tras asserts sobre witness data no requiere `disclose()` | Compila limpio: el incremento es una constante y el `assert` aborta, no ramifica |
 | `--skip-zk` omite la generación de proving keys | Probado: genera `contract/` y `zkir/`, no `keys/` |
+| `kernel.self()` devuelve la dirección del contrato dentro de un circuito | [Ledger data types — Kernel](https://docs.midnight.network/compact/reference/ledger-adt); compila al patrón `kernel_self` del onchain-runtime |
+| El patrón de nullifier es `persistentHash` con domain separator + `Set<Bytes<32>>` | [Smart contract security — double-spend prevention](https://docs.midnight.network/compact/smart-contract-security#double-spend-prevention-with-nullifiers) y [Preventing replay attacks](https://docs.midnight.network/guides/security-best-practices#preventing-replay-attacks) |
+| El nullifier debe disclosarse para insertarlo en el `Set` | Es el patrón oficial: `spent.insert(disclose(nul))` |
+| La dirección del contrato es `Sha256(initial_state, nonce)` | `ledger/src/structure.rs:2536-2542`, verificado en la etapa anterior |
 
 ### Decisiones tomadas y descartadas
 
@@ -429,10 +582,8 @@ Queda pendiente para `integration/proof-flow`: alcanza con un happy path.
 ## Estado de deploy
 
 **Este contrato no debe desplegarse fuera de un devnet local descartable.** Una
-instancia desplegada ahora queda permanentemente en `JobState.OPEN` —no existe
-`closeJob`— y sin deduplicación: el mismo candidato puede matchear tantas veces
-como quiera hasta que llegue el nullifier. Los contratos de Midnight no son
-actualizables.
+instancia desplegada ahora queda permanentemente en `JobState.OPEN`: no existe
+`closeJob`, y los contratos de Midnight no son actualizables.
 
 `npm run deploy` y `npm run cli` siguen apuntando al contrato `hello-world` del
 starter; esta etapa no los tocó.
@@ -441,41 +592,38 @@ starter; esta etapa no los tocó.
 
 ## Fuera de scope en esta etapa
 
-No existen y **no deben asumirse**: nullifier, prevención de duplicados,
-`candidateSecret`, hashing específico de candidato, domain separator,
-commitments, Consent Reveal, `closeJob`, tercer criterio.
+No existen y **no deben asumirse**: commitments, Consent Reveal, `closeJob`,
+tercer criterio (onsite days), autorización del empleador, presupuesto privado
+del empleador.
 
-Consecuencia concreta que hay que tener presente: **nada impide todavía que el
-mismo candidato incremente `matchCount` varias veces sobre la misma vacante.**
-Hay un test que fija esa contabilidad actual, para que la etapa del nullifier la
-cambie de forma explícita.
+### Entradas para las etapas siguientes
 
-### Entradas para `contract/job-nullifier`
+Vienen de las security reviews de esta etapa y de la anterior. Conviene
+decidirlas **al diseñar**, no después:
 
-Salieron de la security review de esta etapa. Conviene decidirlas **al diseñar**
-la próxima, no después:
-
-- **Un nullifier por sí solo no acota nada si el secreto es gratis.** Un
-  nullifier limita a un match *por secreto*, y un `Bytes<32>` que el witness
-  elige libremente se genera infinitamente. Para que signifique algo,
-  `candidateSecret` tiene que estar anclado a algo escaso o atestiguado: una
-  credencial emitida por un tercero, pertenencia a un MerkleTree poblado por un
-  registrador, un depósito.
-- **El nullifier no debe derivarse solo de `jobId`.** `jobId` es elegido por
-  quien despliega y puede colisionar a propósito. Incluir la dirección de la
-  instancia (`kernel.self()`), que sí es única.
-- **Domain separators distintos** para commitment y para nullifier, e incluir el
-  identificador de la vacante en ambos. Compartir dominio habilita linkeo entre
-  vacantes.
-- **Comprometer los valores declarados, no solo probarlos.** Hoy los dos valores
-  privados se consumen y se descartan: nada ata al candidato a lo que declaró.
-  Si el commitment de la próxima etapa los incluye, el candidato podrá seguir
-  mintiendo, pero no podrá mentir *distinto* en cada etapa — y un Consent Reveal
-  posterior podría comprobar que lo revelado coincide con lo que se usó para
-  probar compatibilidad.
-- **Preservar la uniformidad del transcript.** Hoy el transcript público es
-  byte-idéntico para todo `proveMatch` exitoso sobre una misma vacante, porque
-  el circuito no tiene ramas. Un `if` sobre datos privados en la próxima etapa
+- **Anclar `candidateSecret` para que el nullifier acote personas y no
+  secretos.** Hoy un secreto nuevo es un candidato nuevo. Acotarlo de verdad
+  requiere ligarlo a algo escaso o atestiguado: una credencial emitida por un
+  tercero, pertenencia a un MerkleTree poblado por un registrador, un depósito.
+  Es la única palanca que convierte el uso único en algo con sentido
+  adversarial.
+- **Domain separator distinto para el commitment.** El nullifier ya usa
+  `"proofmatch:job-nullifier:v1"`. Un commitment futuro debe usar un dominio
+  propio: compartirlo haría que ambos hashes coincidan para el mismo secreto y
+  permitiría enlazarlos.
+- **Comprometer los valores declarados, no solo probarlos.** Hoy la compensación
+  y las horas se consumen y se descartan: nada ata al candidato a lo que
+  declaró. Si el commitment los incluye, el candidato podrá seguir mintiendo,
+  pero no podrá mentir *distinto* en cada etapa — y un Consent Reveal posterior
+  podría comprobar que lo revelado coincide con lo que se usó para probar
+  compatibilidad.
+- **Preservar la uniformidad del transcript.** Hoy la forma del transcript
+  público es idéntica para todo `proveMatch` exitoso: 37 operaciones en la misma
+  secuencia, porque el circuito no tiene ramas. Un `if` sobre datos privados
   rompería esa propiedad y abriría un canal lateral por la forma del transcript.
+- **Mantener las escrituras al final.** Las dos mutaciones van después de todos
+  los `assert`. El fixture `proofmatch-job-mutates-first` y su test existen para
+  que invertir ese orden rompa la suite en vez de pasar en silencio.
 
-Próxima etapa según el plan: `contract/job-nullifier`.
+Próxima etapa según el plan: integración TypeScript (`integration/proof-flow`),
+que es ownership de Coqui. La línea contractual core queda cerrada salvo bugs.
