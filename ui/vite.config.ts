@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { fileURLToPath, URL } from 'node:url';
 
 import { defineConfig, type Plugin } from 'vite';
@@ -7,6 +8,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 
 const proofMatchZkRoot = new URL('../contracts/managed/proofmatch-job/', import.meta.url);
+const require = createRequire(import.meta.url);
 const proofMatchZkAssets = [
   'keys/proveMatch.prover',
   'keys/proveMatch.verifier',
@@ -46,10 +48,22 @@ function serveProofMatchZkAssets(): Plugin {
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait(), serveProofMatchZkAssets()],
   resolve: {
-    alias: {
-      '@proofmatch/browser-ui-api': fileURLToPath(new URL('../src/proofmatch/browser/ui-api.ts', import.meta.url)),
-      '@proofmatch/browser-ui-contract': fileURLToPath(new URL('../src/proofmatch/browser/ui-contract.ts', import.meta.url)),
-    },
+    alias: [
+      { find: /^events$/, replacement: require.resolve('events/') },
+      { find: /^assert$/, replacement: require.resolve('assert/') },
+      {
+        find: /^isomorphic-ws$/,
+        replacement: fileURLToPath(new URL('./src/integration/browser-runtime.ts', import.meta.url)),
+      },
+      {
+        find: '@proofmatch/browser-ui-api',
+        replacement: fileURLToPath(new URL('../src/proofmatch/browser/ui-api.ts', import.meta.url)),
+      },
+      {
+        find: '@proofmatch/browser-ui-contract',
+        replacement: fileURLToPath(new URL('../src/proofmatch/browser/ui-contract.ts', import.meta.url)),
+      },
+    ],
   },
   server: {
     fs: { allow: ['..'] },
