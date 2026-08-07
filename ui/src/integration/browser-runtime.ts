@@ -1,8 +1,14 @@
 import { Buffer } from 'buffer';
+import browserProcess from 'process';
 
-type BrowserGlobal = typeof globalThis & { Buffer?: typeof Buffer };
+type BrowserGlobal = typeof globalThis & {
+  Buffer?: typeof Buffer;
+  process?: typeof browserProcess;
+};
 
-(globalThis as BrowserGlobal).Buffer ??= Buffer;
+const browserGlobal = globalThis as BrowserGlobal;
+browserGlobal.Buffer ??= Buffer;
+browserGlobal.process ??= browserProcess;
 
 const BrowserWebSocket = globalThis.WebSocket;
 
