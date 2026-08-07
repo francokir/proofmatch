@@ -371,15 +371,39 @@ puede verificarlo:
 
   `tests/witnesses.ts` tiene un `testSecret(seed)` determinista: está marcado
   como test-only y es precisamente el antipatrón a no copiar.
-- **Estable en el tiempo.** Si el candidato regenera su secreto, el contrato lo
-  considera otra persona y puede volver a matchear. Debe persistir en el private
-  state entre sesiones.
-- **El mismo secreto para todas las vacantes.** No hace falta uno por vacante:
-  el contexto de vacante ya lo aporta `kernel.self()` dentro del circuito. Usar
-  uno distinto por vacante no aporta privacidad y rompe la deduplicación si el
-  candidato lo rota.
+- **Estable para una vacante dada, a lo largo del tiempo.** Este es el único
+  requisito de estabilidad que el contrato impone, y conviene leerlo con
+  precisión: si el candidato regenera su secreto y vuelve a postularse **a la
+  misma vacante**, el nullifier cambia y el contrato lo considera otra persona.
+  Lo que rompe la deduplicación es la **rotación**, no el alcance del secreto.
+
+  **No hace falta un secreto global compartido entre vacantes.** El contexto de
+  vacante ya lo aporta `kernel.self()` dentro del circuito, así que un secreto
+  distinto por contrato produce exactamente las mismas garantías: nullifier
+  determinista dentro de la vacante, y no linkeable fuera de ella.
+
+  Esto importa porque el `levelPrivateStateProvider` **namespacea el private
+  state por dirección de contrato** — la clave es `${contractAddress}:${privateStateId}`
+  y `setContractAddress()` es obligatorio antes de cualquier `get`/`set`. Un
+  secreto por contrato es el patrón que el provider soporta de forma nativa, y
+  es el que usa el tutorial oficial de bboard: `setContractAddress(addr)` →
+  `get()` → si no hay nada, generar 32 bytes aleatorios y persistir.
+
+  Un secreto global es igualmente válido pero requiere almacenarlo fuera del
+  provider y copiarlo al private state de cada contrato, lo que multiplica las
+  copias del mismo secreto sin ganar nada. Preferir per-contrato salvo que
+  aparezca una razón concreta (por ejemplo, anclar el secreto a una credencial
+  externa, que hoy está fuera de scope).
 - **Nunca sale de la máquina del candidato.** No se loguea, no se envía a la
   empresa, no va a telemetría. Lo único que se publica es el hash derivado.
+
+**Consecuencia operativa a tener presente:** el provider también scopea por
+`accountId` (hasheado con SHA-256). Si el candidato cambia de wallet, no
+encuentra su secreto y el contrato lo ve como otra persona. Y el propio provider
+advierte que **no tiene mecanismo de recuperación**: borrar el storage destruye
+el secreto. Ambas cosas caen en el límite ya conocido —el nullifier acota
+secretos, no personas— y no rompen ninguna garantía del contrato, pero definen
+qué debe comunicar la UI.
 
 **Un witness no es código confiable.** Cada DApp puede implementarlo como
 quiera, así que el circuito nunca asume que devuelve algo sensato: valida rango
