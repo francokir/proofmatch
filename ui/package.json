@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "assert": "2.1.0",
+    "buffer": "6.0.3",
+    "events": "3.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
