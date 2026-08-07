@@ -1,0 +1,68 @@
+// Fixture de test. NO forma parte del contrato de ProofMatch y no se compila
+// con `npm run compile`; lo compila la suite de tests bajo demanda.
+//
+// Reproduce el estado público y el circuito `proveMatch` de
+// contracts/proofmatch-job.compact, pero su constructor ignora los argumentos y
+// escribe términos que el constructor real jamás produciría:
+// jobMaximumCompensation = 0 y jobRequiredWeeklyHours = 200.
+//
+// Modela la amenaza real: los `assert` de un constructor de Compact no los
+// verifica la cadena, así que un deployer que arme el ContractDeploy a mano
+// puede publicar una vacante con términos imposibles. El circuito `proveMatch`
+// sí corre bajo prueba, y debe rechazarlos.
+//
+// Si cambia el estado público del contrato real, este fixture queda
+// desincronizado: el test `los fixtures declaran el mismo estado publico que el
+// contrato real` lo detecta.
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export enum JobState {
+  OPEN,
+  CLOSED
+}
+
+export sealed ledger jobId: Bytes<32>;
+export sealed ledger jobMaximumCompensation: Uint<64>;
+export sealed ledger jobRequiredWeeklyHours: Uint<8>;
+export ledger jobState: JobState;
+export ledger matchCount: Counter;
+
+witness candidateMinimumCompensation(): Uint<64>;
+witness candidateAvailableWeeklyHours(): Uint<8>;
+
+constructor(
+  id: Bytes<32>,
+  maximumCompensation: Uint<64>,
+  requiredWeeklyHours: Uint<8>
+) {
+  jobId = disclose(id);
+  // Terminos malformados a proposito: se ignoran los argumentos.
+  jobMaximumCompensation = 0;
+  jobRequiredWeeklyHours = 200;
+  jobState = JobState.OPEN;
+}
+
+export circuit proveMatch(): [] {
+  assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
+  assert(jobId != default<Bytes<32>>, "ProofMatch: malformed job terms");
+  assert(jobMaximumCompensation > 0, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours > 0, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours <= 168, "ProofMatch: malformed job terms");
+
+  const _minimumCompensation = candidateMinimumCompensation();
+  const _availableWeeklyHours = candidateAvailableWeeklyHours();
+
+  assert(_minimumCompensation > 0, "ProofMatch: candidate compensation out of range");
+  assert(_availableWeeklyHours > 0, "ProofMatch: candidate weekly hours out of range");
+  assert(_availableWeeklyHours <= 168, "ProofMatch: candidate weekly hours out of range");
+
+  assert(_minimumCompensation <= jobMaximumCompensation,
+         "ProofMatch: compensation not compatible");
+  assert(_availableWeeklyHours >= jobRequiredWeeklyHours,
+         "ProofMatch: weekly hours not compatible");
+
+  matchCount += 1;
+}
