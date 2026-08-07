@@ -22,3 +22,47 @@ Thumbs.db
 *.log
 npm-debug.log*
 yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Baseline create-mn-app@0.5.0 / template hello-world
+# Reglas del .gitignore del scaffold oficial que no estaban cubiertas arriba.
+# Agregadas por concatenacion: no se piso ninguna regla propia de ProofMatch.
+# ---------------------------------------------------------------------------
+
+# Build output
+dist/
+build/
+
+# Artefactos generados por el compilador Compact (contract/, keys/, zkir/).
+# Se regeneran con `npm run compile`. Nunca editar a mano (ver AGENTS.md).
+contracts/managed/
+
+# Estado de red de Midnight — CONTIENE SEEDS DE WALLET POR RED. Nunca versionar.
+.midnight-state.json
+.midnight-wallet-state/
+
+# Info de deploy y private state
+deployment.json
+*-state/
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swo
+
+# Runtime / temporales / coverage
+logs/
+pids/
+*.pid
+*.pid.lock
+coverage/
+tmp/
+temp/
+
+# ---------------------------------------------------------------------------
+# Hueco del .gitignore oficial de create-mn-app@0.5.0 (reportable upstream).
+# `levelPrivateStateProvider` (src/deploy.ts, src/cli.ts, scripts/e2e-check.ts)
+# crea este LevelDB en la raiz con el PRIVATE STATE del contrato. El template
+# no lo ignora. Versionarlo filtraria estado privado: se ignora aca.
+# ---------------------------------------------------------------------------
+midnight-level-db/
