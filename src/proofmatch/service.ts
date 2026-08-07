@@ -1,10 +1,12 @@
 import { createMidnightProviders } from '../providers';
 import {
   prepareCandidatePrivateState,
+  resetCandidatePrivateState,
   type CandidatePrivateInputs,
   type CandidatePrivateStateProvider,
   type ProofMatchCandidatePrivateState,
 } from '../candidate-private-state';
+import type { ContractAddress } from '@midnight-ntwrk/midnight-js-protocol/compact-runtime';
 
 import { deployProofMatchJob, type DeployProofMatchJobOptions } from './deploy';
 import { joinProofMatchJob, type JoinProofMatchJobOptions } from './join';
@@ -19,6 +21,7 @@ export interface ProofMatchService {
     contractAddress: string,
     inputs: CandidatePrivateInputs,
   ): Promise<ProofMatchCandidatePrivateState>;
+  resetCandidatePrivateState(contractAddress: ContractAddress): Promise<void>;
   proveMatch(job: { callTx: { proveMatch(): Promise<unknown> } }): Promise<unknown>;
 }
 
@@ -42,6 +45,11 @@ export function createProofMatchService(
         providers.privateStateProvider as CandidatePrivateStateProvider,
         contractAddress,
         inputs,
+      ),
+    resetCandidatePrivateState: (contractAddress) =>
+      resetCandidatePrivateState(
+        providers.privateStateProvider as CandidatePrivateStateProvider,
+        contractAddress,
       ),
     proveMatch: (job) => job.callTx.proveMatch(),
   };
