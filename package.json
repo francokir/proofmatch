@@ -20,7 +20,8 @@
     "clean": "rm -rf contracts/managed .midnight-state.json .midnight-wallet-state",
     "test": "npm run test:contract",
     "test:contract": "node --import tsx --test tests/*.test.ts",
-    "test:e2e": "tsx scripts/e2e-check.ts"
+    "test:e2e": "tsx scripts/e2e-check.ts",
+    "test:e2e:proofmatch": "tsx scripts/proofmatch-e2e.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.16.0",
