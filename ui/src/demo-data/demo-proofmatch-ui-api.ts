@@ -1,5 +1,5 @@
 /** DEMO ONLY — NOT MIDNIGHT, NOT LACE, NOT REAL LEDGER DATA. */
-import type { ProofMatchUiApi, PublicJobState, WalletStatus } from '../domain/integration';
+import type { ProofFlowStatus, ProofMatchUiApi, PublicJobState, WalletStatus } from '../domain/integration';
 
 const demoPublicState: PublicJobState = {
   jobId: 'PM-AI-001',
@@ -11,6 +11,7 @@ const demoPublicState: PublicJobState = {
 };
 
 let walletStatus: WalletStatus = 'not_detected';
+let proofStatus: ProofFlowStatus = 'idle';
 export const demoContractAddress = 'DEMO CONTRACT REFERENCE';
 
 export const demoProofMatchUiApi: ProofMatchUiApi = {
@@ -23,4 +24,5 @@ export const demoProofMatchUiApi: ProofMatchUiApi = {
   async readPublicState() { return demoPublicState; },
   async refreshPublicState() { return demoPublicState; },
   async resetCandidatePrivateState() { await Promise.resolve(); },
+  subscribeProofStatus(listener) { listener(proofStatus); return () => undefined; },
 };
