@@ -15,6 +15,19 @@
 .quick-minimum {
   transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease;
 }
+.wallet-action {
+  padding: .62rem .9rem;
+  border: 1px solid #e0e0dc;
+  border-radius: 999px;
+  background: #fff;
+  color: #454640;
+  cursor: pointer;
+  font-size: .64rem;
+  font-weight: 720;
+}
+.wallet-action:disabled { cursor: default; opacity: .7; }
+.wallet-action:focus-visible { outline: 3px solid rgba(111, 103, 181, .35); outline-offset: 2px; }
+.ui-safe-error { margin: .6rem auto 0; max-width: 720px; color: #8d3b35; font-size: .72rem; text-align: center; }
 .amount-input-wrap {
   position: relative;
   flex: 1;
