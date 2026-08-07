@@ -35,6 +35,7 @@ function App({ api = demoProofMatchUiApi, contractAddress = demoContractAddress,
   const navigate = (nextView: View) => { if (nextView === view || isTransitioning) return; setIsTransitioning(true); transitionTimer.current = window.setTimeout(() => { setView(nextView); setIsTransitioning(false); }, 170); };
   const refreshPublicState = async () => { try { setPublicState(await api.refreshPublicState(contractAddress)); } catch { setUiError('Public state is unavailable. Your private values remain local.'); } };
   useEffect(() => { void api.readPublicState(contractAddress).then(setPublicState).catch(() => setUiError('Public state is unavailable. Your private values remain local.')); return () => window.clearTimeout(transitionTimer.current); }, [api, contractAddress]);
+  useEffect(() => api.subscribeProofStatus(setDemoProofStatus), [api]);
   const activeProofStatus = proofStatus ?? demoProofStatus;
   const ledgerData = useMemo(() => publicState ? ledgerLensDataFromPublicState(publicState) : ledgerLensDemo, [publicState]);
   const startPrivateCheck = async (terms: CandidatePrivateTerms) => {
@@ -42,7 +43,7 @@ function App({ api = demoProofMatchUiApi, contractAddress = demoContractAddress,
     try {
       await api.prepareCandidatePrivateState(contractAddress, { minimumCompensation: BigInt(Math.trunc(terms.minimumCompensation)), availableWeeklyHours: BigInt(Math.trunc(terms.availableWeeklyHours)) });
       if (demoMode) { setDemoProofStatus('proof_generating'); await api.proveMatch(contractAddress); setDemoProofStatus('indexing_pending'); await refreshPublicState(); setDemoProofStatus('confirmed'); }
-      else await api.proveMatch(contractAddress);
+      else { await api.proveMatch(contractAddress); await refreshPublicState(); }
     } catch { setDemoProofStatus('failed'); setUiError('The private check could not be completed. Your private values remain local.'); }
   };
   const resetPrivateTerms = async () => { try { await api.resetCandidatePrivateState(contractAddress); setPrivateTerms(null); setDemoProofStatus('idle'); } catch { setUiError('Private values could not be reset. They remain local.'); } };

@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import type { ContractAddress } from '@midnight-ntwrk/midnight-js-protocol/compact-runtime';
 import type { PrivateStateProvider } from '@midnight-ntwrk/midnight-js-types';
 
@@ -23,7 +21,9 @@ export interface CandidatePrivateInputs {
 }
 
 function newCandidateSecret(): Uint8Array {
-  return Uint8Array.from(randomBytes(32));
+  const secret = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(secret);
+  return secret;
 }
 
 function requireCandidateSecret(secret: Uint8Array): Uint8Array {
