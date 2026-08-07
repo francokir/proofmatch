@@ -6,9 +6,10 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "compile": "npm run compile:hello-world && npm run compile:proofmatch-job",
+    "compile": "npm run compile:hello-world && npm run compile:proofmatch-job && npm run compile:proofmatch-job-v2",
     "compile:hello-world": "compact compile contracts/hello-world.compact contracts/managed/hello-world",
     "compile:proofmatch-job": "compact compile contracts/proofmatch-job.compact contracts/managed/proofmatch-job",
+    "compile:proofmatch-job-v2": "compact compile contracts/proofmatch-job-v2.compact contracts/managed/proofmatch-job-v2",
     "build": "npx tsc --noEmit || true",
     "setup": "npx tsx src/setup.ts",
     "deploy": "npx tsx src/deploy.ts",
@@ -21,6 +22,7 @@
     "test": "npm run test:contract",
     "test:contract": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e-check.ts",
+    "test:e2e:v2": "tsx scripts/proofmatch-v2-e2e.ts",
     "test:e2e:proofmatch": "tsx scripts/proofmatch-e2e.ts"
   },
   "dependencies": {
