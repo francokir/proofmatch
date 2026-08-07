@@ -138,12 +138,13 @@ describe('ProofMatchJob — superficie del contrato', () => {
     assert.deepEqual(Object.keys(contract.impureCircuits), ['proveMatch']);
   });
 
-  it('declara exactamente los dos witnesses del candidato', () => {
+  it('declara exactamente los tres witnesses del candidato', () => {
     const contract = new Contract(witnesses);
 
     assert.deepEqual(Object.keys(contract.witnesses).sort(), [
       'candidateAvailableWeeklyHours',
       'candidateMinimumCompensation',
+      'candidateSecret',
     ]);
   });
 
