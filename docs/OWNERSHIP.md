@@ -1,51 +1,54 @@
-# OWNERSHIP — ProofMatch
+# OWNERSHIP — worktrees y ramas
 
-Quién puede tocar cada zona. Un agente no toca la superficie de otro.
-
-## Personas y agentes
-
-| Responsable | Superficie | Archivos / tareas |
-|---|---|---|
-| **Franco + Claude Code** | Contrato y privacidad | `*.compact`, tests contractuales, disclosures, casos negativos, replay |
-| **Coqui + su Codex** | Integración Midnight | Midnight.js, providers, witnesses TypeScript, private state, Lace, deploy/join, indexer |
-| **Ponti + su Codex** | Frontend y demo | React, CSS, estados de UX, loading, copy, narrativa, pantallas, video |
-| **Franco + su Codex** | QA y coordinación | Docs, revisión de diffs, Git, contingencias, README técnico |
-| **Franco (humano)** | Release | `main`, merges, alcance, freeze de features, demo final |
+**La tabla de ownership vive en `AGENTS.md`.** Este archivo cubre solo lo
+operativo: dónde trabaja cada uno y qué ramas están activas.
 
 ## Worktrees en la notebook de Franco
 
 | Directorio | Rama | Uso |
 |---|---|---|
 | `/home/franco/proofmatch-release` | `main` | Integración, QA final, demo, último estado verde. **Release-only.** |
-| `/home/franco/proofmatch-claude` | `contract/skeleton` | Claude Code: Compact, tests contractuales, privacidad |
+| `/home/franco/proofmatch-claude` | rama de la tarea en curso | Claude Code: Compact, tests contractuales, privacidad |
 | `/home/franco/proofmatch-codex` | `franco/qa-docs` | Codex de Franco: QA, docs, coordinación |
 
-Coqui y Ponti trabajan en **su propia notebook, su propio clon y su propia cuenta**.
-Nadie comparte sesiones, tokens ni credenciales.
+`proofmatch-claude` **no tiene rama fija**: cada tarea parte de `origin/main` en
+una rama nueva. Las ramas de etapas cerradas no se reutilizan.
 
-## Ramas iniciales
+Coqui y Ponti trabajan en **su propia notebook, su propio clon y su propia
+cuenta**. Nadie comparte sesiones, tokens ni credenciales.
 
-| Rama | Owner |
-|---|---|
-| `main` | Franco (release-only, protegida) |
-| `contract/skeleton` | Franco + Claude |
-| `franco/qa-docs` | Franco + su Codex |
-| `integration/provider-foundation` | Coqui + su Codex |
-| `ui/product-shell` | Ponti + su Codex |
+## Ramas
+
+| Rama | Owner | Estado |
+|---|---|---|
+| `main` | Franco (release-only, protegida) | `a4e115b` |
+| `integration/provider-foundation` | Coqui | activa, sin mergear |
+| `ui/product-shell` | Ponti | creada, sin commits propios |
+| `franco/qa-docs` | Franco + su Codex | sin commits propios |
+| `contract/skeleton`, `contract/private-compatibility`, `contract/job-nullifier` | Franco + Claude | **cerradas**, mergeadas. No reutilizar. |
+
+Convención de nombres: `contract/<tarea>`, `integration/<tarea>`, `ui/<tarea>`,
+`qa/<tarea>`, `docs/<tarea>`, `fix/<tarea>`.
 
 ## Reglas de zona
 
 - Un agente no toca la superficie de otro "porque es más rápido".
-- Si una tarea cruza zonas, **primero** se define una interfaz o contrato de integración.
+- Si una tarea cruza zonas, **primero** se define la interfaz. Ver `docs/HANDOFFS.md`.
 - Bindings y archivos generados se regeneran con el compilador; no se editan a mano.
-- Cambios de dependencias: aprobación de Franco y coordinación con todos.
+- Cambios de dependencias: aprobación de Franco, sin importar de quién sea la superficie.
 - Cada PR declara los archivos modificados y las validaciones ejecutadas.
 
 ## Archivos compartidos
 
-`AGENTS.md`, `CLAUDE.md` y `docs/*` son de todos pero los edita **Franco + su Codex**.
-Si otro agente necesita cambiarlos, lo propone; no los edita por su cuenta.
+`AGENTS.md`, `CLAUDE.md` y `docs/*` los mantiene **Franco + su Codex**, con dos
+excepciones registradas:
+
+- `docs/CONTRACT_INTERFACE.md` lo mantiene **Claude**: describe la interfaz real
+  del contrato y se actualiza junto con él.
+- `CLAUDE.md` lo puede actualizar **Claude** cuando cambia su propio rol o
+  workflow.
+
+Cualquier otro agente que necesite cambiar un archivo compartido lo propone; no
+lo edita por su cuenta.
 
 **Si dos agentes necesitan el mismo archivo: PARAR y coordinar con Franco.**
-Se define un owner temporal, el otro trabaja sobre una interfaz o test independiente,
-se mergea el primer cambio y recién después se actualiza la segunda rama.

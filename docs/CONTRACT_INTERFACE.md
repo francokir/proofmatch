@@ -3,7 +3,7 @@
 Interfaz **real** del contrato Compact, tal como está hoy en el repositorio.
 Este documento describe únicamente lo que existe y compila. No documenta APIs futuras.
 
-**Etapa actual:** `contract/job-nullifier`
+**Estado:** core completo desde `green-04-nullifier`. Sin features nuevas.
 **Fuente:** `contracts/proofmatch-job.compact`
 **Artefactos generados:** `contracts/managed/proofmatch-job/` (gitignored, se regeneran con `npm run compile`)
 **Compilador verificado:** Compact `0.31.1` · CLI `compact` `0.5.1` · `@midnight-ntwrk/compact-runtime` `0.16.0`
@@ -517,10 +517,12 @@ escritas antes de construir encima.
 - **`matchCount` público es un canal lateral.** Con una vacante por contrato,
   cada incremento será un evento fechado y atribuible a *esta* vacante. Una
   vacante con un solo postulante revela que esa persona se postuló, por bien
-  construidos que estén el nullifier y los commitments. Lo que las etapas
-  siguientes protegen es el *contenido* del match, no el hecho de participar.
-  Decisión pendiente de Franco: aceptarlo y documentarlo, o sacar el contador
-  del estado público.
+  construido que esté el nullifier. Lo que el producto protege es el *contenido*
+  del match, no el hecho de participar.
+  **Decidido:** se acepta y se declara. `matchCount` es requisito de producto
+  —el recruiter tiene que ver cuántos matches hay— y sacarlo del estado público
+  no resolvería el canal lateral, porque la transacción es observable igual. Va
+  documentado como limitación en `docs/MVP_DEFINITION.md`.
 - **El deploy vincula públicamente empresa y vacante**, porque lo firma la
   wallet de la empresa. Es aceptable para un aviso de trabajo, pero implica que
   el único activo de privacidad real es el lado del candidato.

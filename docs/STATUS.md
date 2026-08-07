@@ -1,54 +1,84 @@
 # STATUS — ProofMatch
 
-**Última actualización:** 2026-08-07
-**Actualiza:** Franco + su Codex. Todo agente debe leer este archivo antes de una tarea importante.
+La foto de **ahora**. Si contradice a Git, gana Git: corregí este archivo.
 
-## Estado real
+**Main:** `a4e115b44bc5125e7d3c132cbb9a4bccc57101d1`
+**Último tag verde:** `green-04-nullifier` → `e5c420f`
+**Actualizado:** 2026-08-07
 
-Bootstrap operativo del repositorio. **Todavía no hay código de producto.**
+---
 
-## Qué existe
+## CONTRATO — CORE COMPLETE
 
-- Repositorio `francokir/proofmatch`: público, Apache-2.0, default branch `main`.
-- Colaboradores aceptados: `francokir`, `vcoqui`, `lucaspontiggia-gif`.
-- Tres worktrees locales en la notebook de Franco (ver `docs/OWNERSHIP.md`).
-- Contexto compartido de agentes: `AGENTS.md`, `CLAUDE.md`, `docs/*`.
-- Toolchain verificado en la notebook de Franco (ver `docs/COMMANDS.md`).
+`contracts/proofmatch-job.compact`. Una instancia = una vacante.
 
-## Qué NO existe todavía
+Existe y está mergeado en `main`:
 
-- **No hay starter oficial instalado.** El repo contiene únicamente `LICENSE` y documentación.
-- **No hay baseline verde.** No existe el tag `green-01-starter`.
-- No hay `package.json`, ni lockfile, ni scripts de build/test.
-- No hay contrato Compact, ni integración Midnight.js, ni UI.
-- No hay CI ni status checks.
+- `ProofMatchJob` con términos públicos **sellados** (`jobId`,
+  `jobMaximumCompensation`, `jobRequiredWeeklyHours`);
+- `proveMatch()` — único circuito, sin argumentos;
+- compatibilidad privada: `candidateMinimumCompensation` y
+  `candidateAvailableWeeklyHours` como witnesses;
+- `candidateSecret` como witness;
+- nullifier por candidato **y** vacante, derivado con `kernel.self()`;
+- prevención de duplicados vía `usedNullifiers: Set<Bytes<32>>`;
+- `matchCount: Counter`;
+- un fallo de compatibilidad **no** consume el nullifier.
 
-## Bloqueante actual
+Interfaz completa: `docs/CONTRACT_INTERFACE.md`.
 
-**STARTER STATUS: BLOCKED — official starter not yet selected/installed.**
+### Validaciones al momento del gate
 
-No se eligió ni confirmó el starter oficial del evento. Nadie instala nada hasta
-que un mentor confirme:
+| Comando | Resultado |
+|---|---|
+| `npm run compile` | PASS |
+| `npm run test:contract` | 82/82 |
+| `npm test` | 82/82 |
+| `npm run build` | PASS |
+| `npm run test:e2e` | PASS sobre el baseline del starter disponible al momento del gate |
 
-- ¿Cuál es el repositorio/template/generador correcto para la entrega?
-- ¿Qué comando exacto compila el contrato y cuál corre los tests?
-- ¿La entrega corre en Local, Preview o Preprod?
-- ¿Qué versiones del toolchain se recomiendan hoy?
-- ¿Qué archivos generados van a Git y cuáles no?
+`npm run test:e2e` valida el contrato `hello-world` del starter, no `proveMatch`.
+El E2E real de ProofMatch llega con la integración.
 
-## Próximo gate
+---
 
-1. Confirmar el starter oficial con un mentor.
-2. Instalarlo en `proofmatch-release` sin modificar su lógica.
-3. `install` + `compile` + `test` verdes.
-4. Commit del starter intacto y tag `green-01-starter`.
-5. Validar que las tres notebooks pueden clonar, instalar, compilar y testear el mismo commit.
-6. Recién ahí: primera ola de trabajo en paralelo.
+## Estado de las tres líneas
 
-**Nadie empieza features antes del punto 5.**
+| Línea | Estado |
+|---|---|
+| **Franco + Claude** — contrato | **Core completo.** Modo soporte y hardening. Sin features nuevas. |
+| **Coqui** — integración | **ACTIVO.** Rama `integration/provider-foundation`, 1 commit **no mergeado**. |
+| **Ponti** — UI | **ACTIVO.** Rama `ui/product-shell` creada, todavía sin commits propios. |
+
+Nada de las líneas de Coqui o Ponti está integrado en `main` todavía. No asumir
+que una función existe hasta que esté mergeada.
+
+---
+
+## NEXT CRITICAL GATE
+
+**Integración TypeScript real contra ProofMatch.**
+
+Resultado buscado: una llamada real a `proveMatch` desde la capa de aplicación,
+con private state real, proof flow completo y lectura del estado público.
+
+Concretamente, que se pueda demostrar:
+
+1. un candidato compatible registra el match;
+2. uno incompatible es rechazado y no cambia nada;
+3. un duplicado es rechazado;
+4. `matchCount` se lee del ledger vía indexer.
+
+Gate: `green-05-integration`. Owner: Coqui. Ver `docs/ROADMAP.md`.
+
+---
 
 ## Riesgos abiertos
 
-- Sin baseline verde no hay punto de rescate al cual volver si algo se rompe.
-- Las tres notebooks todavía no validaron el mismo commit.
-- Sin CI, la única validación es local y manual.
+- **Ningún test genera todavía una prueba ZK real.** La suite contractual corre
+  en el simulador; las proving keys existen y no se ejercitan. Se cierra con la
+  integración.
+- **No hay CI.** La única validación es local y manual.
+- **No hay README.md** en la raíz del repo. Es requisito de entrega (Ponti).
+- El nullifier acota **secretos, no personas**: un secreto nuevo es un candidato
+  nuevo. Límite conocido y aceptado para el MVP.
