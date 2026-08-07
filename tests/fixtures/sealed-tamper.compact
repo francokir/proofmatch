@@ -1,0 +1,29 @@
+// Fixture de test negativo. NO forma parte del contrato de ProofMatch y no se
+// compila con `npm run compile`.
+//
+// Reproduce las declaraciones selladas de contracts/proofmatch-job.compact y
+// agrega un circuito exportado que intenta mutarlas. El compilador DEBE
+// rechazarlo. Si algun dia esto compila, es que `sealed` dejo de proteger los
+// terminos de la vacante.
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+export sealed ledger jobId: Bytes<32>;
+export sealed ledger jobMaximumCompensation: Uint<64>;
+export sealed ledger jobRequiredWeeklyHours: Uint<8>;
+
+constructor(
+  id: Bytes<32>,
+  maximumCompensation: Uint<64>,
+  requiredWeeklyHours: Uint<8>
+) {
+  jobId = disclose(id);
+  jobMaximumCompensation = disclose(maximumCompensation);
+  jobRequiredWeeklyHours = disclose(requiredWeeklyHours);
+}
+
+export circuit tamperWithJobTerms(newCompensation: Uint<64>): [] {
+  jobMaximumCompensation = disclose(newCompensation);
+}

@@ -6,7 +6,9 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "compile": "compact compile contracts/hello-world.compact contracts/managed/hello-world",
+    "compile": "npm run compile:hello-world && npm run compile:proofmatch-job",
+    "compile:hello-world": "compact compile contracts/hello-world.compact contracts/managed/hello-world",
+    "compile:proofmatch-job": "compact compile contracts/proofmatch-job.compact contracts/managed/proofmatch-job",
     "build": "npx tsc --noEmit || true",
     "setup": "npx tsx src/setup.ts",
     "deploy": "npx tsx src/deploy.ts",
@@ -16,7 +18,8 @@
     "proof-server:start": "docker compose up -d",
     "proof-server:stop": "docker compose down",
     "clean": "rm -rf contracts/managed .midnight-state.json .midnight-wallet-state",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:contract",
+    "test:contract": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e-check.ts"
   },
   "dependencies": {

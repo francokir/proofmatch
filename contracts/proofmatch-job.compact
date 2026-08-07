@@ -1,0 +1,73 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ProofMatch — skeleton de una vacante.
+//
+// Arquitectura: UNA instancia de contrato = UNA vacante.
+// Esta etapa fija unicamente los terminos publicos de la vacante y el estado
+// publico minimo que necesitan las etapas siguientes. Todavia NO existe
+// matching privado, ni nullifier, ni witnesses: eso llega en
+// contract/private-compatibility y contract/job-nullifier.
+//
+// NO DESPLEGAR a Preview, Preprod ni mainnet en esta etapa. El contrato no
+// tiene circuitos, asi que una instancia desplegada ahora queda para siempre
+// en JobState.OPEN, sin forma de matchear ni de cerrarse, y con los terminos
+// sellados de manera permanente. Solo devnet local y descartable.
+//
+// SUPUESTO DE CONFIANZA: los `assert` del constructor corren en el cliente que
+// despliega. Un constructor de Compact no produce circuito ni verifying key,
+// asi que estas invariantes no las verifica la cadena. Toda etapa posterior
+// que LEA estos terminos debe volver a validarlos dentro de un circuito
+// probado antes de confiar en ellos. Ver docs/CONTRACT_INTERFACE.md.
+
+// Ciclo de vida publico de la vacante. En esta etapa solo se establece el
+// estado inicial; ningun circuito puede transicionarlo todavia.
+export enum JobState {
+  OPEN,
+  CLOSED
+}
+
+// ─── Terminos de la vacante (publicos e inmutables) ──────────────────────────
+// `sealed` los fija en el constructor: ningun circuito exportado puede
+// modificarlos despues del deploy. El compilador lo verifica estaticamente.
+
+export sealed ledger jobId: Bytes<32>;
+export sealed ledger jobMaximumCompensation: Uint<64>;
+export sealed ledger jobRequiredWeeklyHours: Uint<8>;
+
+// ─── Estado publico mutable ──────────────────────────────────────────────────
+// No es `sealed`: etapas posteriores necesitan incrementar `matchCount` y,
+// eventualmente, cerrar la vacante.
+
+export ledger jobState: JobState;
+
+// Counter arranca en su valor por defecto, 0. No se inicializa explicitamente
+// para no emitir escrituras innecesarias en el constructor.
+export ledger matchCount: Counter;
+
+constructor(
+  id: Bytes<32>,
+  maximumCompensation: Uint<64>,
+  requiredWeeklyHours: Uint<8>
+) {
+  // Invariantes de inicializacion. Se evaluan sobre los argumentos del
+  // constructor, que son witness data; los `assert` no escriben ledger y por
+  // eso no requieren `disclose`.
+  assert(id != default<Bytes<32>>, "ProofMatch: jobId must not be the zero identifier");
+  assert(maximumCompensation > 0, "ProofMatch: jobMaximumCompensation must be greater than zero");
+  assert(requiredWeeklyHours > 0, "ProofMatch: jobRequiredWeeklyHours must be greater than zero");
+  // 168 = horas de una semana calendario. Un requisito mayor seria
+  // insatisfacible por construccion. Compact no admite constantes a nivel de
+  // programa, asi que el limite va como literal.
+  assert(requiredWeeklyHours <= 168, "ProofMatch: jobRequiredWeeklyHours must not exceed 168");
+
+  // Los terminos de la vacante son deliberadamente publicos: el candidato
+  // tiene que poder leerlos antes de probar compatibilidad. `disclose` marca
+  // esa publicacion como intencional.
+  jobId = disclose(id);
+  jobMaximumCompensation = disclose(maximumCompensation);
+  jobRequiredWeeklyHours = disclose(requiredWeeklyHours);
+
+  jobState = JobState.OPEN;
+}
