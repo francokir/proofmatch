@@ -71,3 +71,58 @@ constructor(
 
   jobState = JobState.OPEN;
 }
+
+// ─── Nucleo privado de compatibilidad ────────────────────────────────────────
+//
+// Los dos valores del candidato llegan por witness: los provee la capa
+// TypeScript desde el private state del usuario, nunca viajan a la cadena y no
+// aparecen en el ledger. El circuito prueba en cero conocimiento que cumplen
+// las dos condiciones, sin revelarlos.
+//
+// Unidades (convencion del MVP, ver docs/CONTRACT_INTERFACE.md):
+//   candidateMinimumCompensation -> USD mensuales enteros
+//   candidateAvailableWeeklyHours -> horas por semana
+//
+// Un witness NO es codigo confiable: cada DApp puede implementarlo como quiera.
+// Por eso el circuito valida rango y compatibilidad sobre lo que devuelva, en
+// lugar de asumir que devuelve algo sensato.
+
+witness candidateMinimumCompensation(): Uint<64>;
+witness candidateAvailableWeeklyHours(): Uint<8>;
+
+export circuit proveMatch(): [] {
+  // 1. Revalidar los terminos publicos DENTRO del circuito.
+  //
+  // No alcanza con que el constructor los haya validado: sus `assert` corren
+  // en el cliente que despliega y la cadena no los verifica (ver el supuesto
+  // de confianza al inicio del archivo). Este circuito si se ejecuta bajo
+  // prueba, asi que es aca donde las invariantes obligan de verdad.
+  // Leer ledger publico no requiere `disclose`.
+  assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
+  assert(jobId != default<Bytes<32>>, "ProofMatch: malformed job terms");
+  assert(jobMaximumCompensation > 0, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours > 0, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours <= 168, "ProofMatch: malformed job terms");
+
+  // 2. Traer los valores privados del candidato.
+  const _minimumCompensation = candidateMinimumCompensation();
+  const _availableWeeklyHours = candidateAvailableWeeklyHours();
+
+  // 3. Validar el rango de los inputs privados antes de compararlos.
+  assert(_minimumCompensation > 0, "ProofMatch: candidate compensation out of range");
+  assert(_availableWeeklyHours > 0, "ProofMatch: candidate weekly hours out of range");
+  assert(_availableWeeklyHours <= 168, "ProofMatch: candidate weekly hours out of range");
+
+  // 4. Compatibilidad salarial. Ambos lados en USD mensuales enteros.
+  assert(_minimumCompensation <= jobMaximumCompensation,
+         "ProofMatch: compensation not compatible");
+
+  // 5. Compatibilidad horaria. Ambos lados en horas por semana.
+  assert(_availableWeeklyHours >= jobRequiredWeeklyHours,
+         "ProofMatch: weekly hours not compatible");
+
+  // 6. Unica mutacion publica, y solo si TODO lo anterior paso. Un assert que
+  //    falla aborta el circuito completo: el ledger no cambia. El incremento es
+  //    la constante 1, no deriva de witness data, asi que no hay disclosure.
+  matchCount += 1;
+}
