@@ -1,6 +1,6 @@
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
 
-import { createMidnightProviders } from '../providers';
+import type { ProofMatchProviders } from '../providers';
 
 import { createProofMatchCompiledContract } from './contract';
 
@@ -19,7 +19,7 @@ export interface DeployProofMatchJobOptions {
  * invoking proveMatch.
  */
 export async function deployProofMatchJob(
-  providers: ReturnType<typeof createMidnightProviders>,
+  providers: ProofMatchProviders,
   zkConfigPath: string,
   options: DeployProofMatchJobOptions,
 ) {

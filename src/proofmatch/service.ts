@@ -1,4 +1,4 @@
-import { createMidnightProviders } from '../providers';
+import type { ProofMatchProviders } from '../providers';
 import {
   prepareCandidatePrivateState,
   resetCandidatePrivateState,
@@ -30,7 +30,7 @@ export interface ProofMatchService {
  * never creates a global identity or a synthetic contract address.
  */
 export function createProofMatchService(
-  providers: ReturnType<typeof createMidnightProviders>,
+  providers: ProofMatchProviders,
   zkConfigPath: string,
 ): ProofMatchService {
   return {

@@ -2,9 +2,13 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
+import type { MidnightProviders } from '@midnight-ntwrk/midnight-js-types';
 
 import type { NetworkConfig } from './network';
 import type { WalletContext } from './wallet';
+
+/** Provider surface shared by the Node and browser integrations. */
+export type ProofMatchProviders = MidnightProviders;
 
 export const LOCAL_PRIVATE_STATE_PASSWORD = 'Local-Devnet-Development-Placeholder-1';
 
