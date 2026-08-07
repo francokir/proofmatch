@@ -3,8 +3,9 @@
 Interfaz **real** del contrato Compact, tal como está hoy en el repositorio.
 Este documento describe únicamente lo que existe y compila. No documenta APIs futuras.
 
-**Estado:** core completo desde `green-04-nullifier`. Sin features nuevas.
-**Fuente:** `contracts/proofmatch-job.compact`
+**V1 — estado:** core completo desde `green-04-nullifier`. Congelado, es el fallback.
+**V2 — estado:** core end-to-end real. Ver [ProofMatchJobV2](#proofmatchjobv2).
+**Fuente:** `contracts/proofmatch-job.compact` (V1) · `contracts/proofmatch-job-v2.compact` (V2)
 **Artefactos generados:** `contracts/managed/proofmatch-job/` (gitignored, se regeneran con `npm run compile`)
 **Compilador verificado:** Compact `0.31.1` · CLI `compact` `0.5.1` · `@midnight-ntwrk/compact-runtime` `0.16.0`
 
@@ -653,3 +654,181 @@ decidirlas **al diseñar**, no después:
 
 Próxima etapa según el plan: integración TypeScript (`integration/proof-flow`),
 que es ownership de Coqui. La línea contractual core queda cerrada salvo bugs.
+
+---
+
+# ProofMatchJobV2
+
+Contrato **separado** de V1. V1 sigue desplegado, testeado y demostrable; V2 no
+lo modifica. Fuente: `contracts/proofmatch-job-v2.compact`.
+
+## Qué agrega sobre V1
+
+El techo salarial de la empresa deja de ser público. En su lugar se publica una
+**banda** y un **commitment** al valor exacto.
+
+| | V1 | V2 |
+|---|---|---|
+| Techo de la empresa | `jobMaximumCompensation`, **público** | banda pública + `Commit(cap)`; el cap es **privado** |
+| Autorización | ninguna | la empresa se autentica para fijar su cap |
+| Condiciones del candidato | salario, horas | + modalidad de trabajo, + radio de commute |
+| Commitments | ninguno | salario y horas del candidato, atados a su nullifier |
+
+## Estado público
+
+| Campo | Tipo | `sealed` |
+|---|---|---|
+| `jobId` | `Bytes<32>` | sí |
+| `salaryBandFloor` / `salaryBandCeiling` | `Uint<64>` | sí |
+| `jobRequiredWeeklyHours` | `Uint<8>` | sí |
+| `jobWorkMode` | `WorkMode` (`REMOTE`/`HYBRID`/`ONSITE`) | sí |
+| `officeX` / `officeY` | `Uint<32>`, metros | sí |
+| `employerAuthKey` | `Bytes<32>` — hash del secreto | sí |
+| `jobState` | `JobState` | no |
+| `budgetLocked` | `Boolean` | no |
+| `employerBudgetCommitment` | `Bytes<32>` | no |
+| `matchCount` | `Counter` | no |
+| `usedNullifiers` | `Set<Bytes<32>>` | no |
+| `candidateSalaryCommitments` | `Map<Bytes<32>, Bytes<32>>` | no |
+| `candidateHoursCommitments` | `Map<Bytes<32>, Bytes<32>>` | no |
+
+Los commitments van en un **`Map` keyed por nullifier**, no en un `Set`: con un
+`Set` solo se podría probar que un valor se usó en *algún* match de la vacante,
+no en el propio.
+
+## Circuitos
+
+### `lockPrivateBudget(): []`
+
+La empresa prueba, **sin revelar** su techo exacto `E`:
+
+```text
+salaryBandFloor <= E <= salaryBandCeiling
+```
+
+y publica `Commit(E, opening)`. Requiere autenticarse: `employerAuthKey` tiene
+que ser igual a `persistentHash([pad(32, "proofmatch:v2:employer-key:v1"), sk])`.
+Solo se puede llamar una vez.
+
+### `proveGuaranteedMatch(): []`
+
+**Por qué "guaranteed".** La empresa ya probó `floor <= E <= ceiling`. Si el
+candidato prueba `C <= floor`, entonces por transitividad:
+
+```text
+C <= floor <= E   ⟹   C <= E
+```
+
+sin que ninguno conozca el número del otro. **El circuito no usa `E`**: la
+garantía viene de la prueba previa de la empresa. Por eso exige `budgetLocked`.
+
+Orden: revalida términos públicos → lee privados → valida rangos →
+`C <= floor` → horas → modalidad → commute (solo si no es `REMOTE`) →
+deriva el nullifier → verifica uso único → escribe.
+
+Los pasos de escritura van al final: un candidato rechazado **no consume su
+nullifier** y puede reintentar.
+
+### Los otros dos resultados no van a la cadena
+
+| | Condición | Dónde |
+|---|---|---|
+| **Guaranteed Match** | `C <= floor` | on-chain |
+| **Negotiation Zone** | `floor < C <= ceiling` | local |
+| **No Fit** | `C > ceiling` | local |
+
+`classifySalaryFit` y `previewPrivateFit` en `src/proofmatch-v2/service.ts` los
+calculan sin tocar la red. Un preview verde **no es un match**: solo lo es una
+prueba real.
+
+## Witnesses
+
+```compact
+// empresa
+witness employerSecret(): Bytes<32>;
+witness employerMaxCompensation(): Uint<64>;
+witness employerBudgetOpening(): Bytes<32>;
+// candidato
+witness candidateMinimumCompensation(): Uint<64>;   // USD mensuales enteros
+witness candidateAvailableWeeklyHours(): Uint<8>;   // horas por semana
+witness candidateSecret(): Bytes<32>;
+witness candidateAcceptsWorkMode(mode: WorkMode): Boolean;
+witness candidateLocationX(): Uint<32>;             // metros
+witness candidateLocationY(): Uint<32>;
+witness candidateCommuteRadius(): Uint<32>;
+witness candidateSalaryOpening(): Bytes<32>;
+witness candidateHoursOpening(): Bytes<32>;
+```
+
+Todos los `Bytes<32>` **deben** venir de un CSPRNG, y los dos openings del
+candidato deben ser distintos entre sí — el circuito lo exige.
+
+## Distancia: por qué `Uint<32>` en metros
+
+```compact
+dx * dx + dy * dy <= radius * radius
+```
+
+Sin raíz cuadrada y sin punto flotante. En Compact la suma y la multiplicación
+de `Uint` **no pueden desbordar**: el tipo del resultado se ensancha
+(`Uint<0..m·n>`). Medido contra el compilador:
+
+| Tipo | cota de `dx*dx + dy*dy` | |
+|---|---|---|
+| `Uint<32>` | 2^65 | ✅ |
+| `Uint<64>` | 2^129 | ✅ |
+| `Uint<128>` | 2^257 | ❌ error estático |
+
+`Uint<32>` cubre 4.294 km con margen enorme. La resta sí aborta si da negativo y
+no hay `abs()`, así que `absDiff` elige el orden antes de restar.
+
+## Privacidad
+
+**Nunca llegan al ledger ni al transcript público:** el techo exacto de la
+empresa, su secreto y su opening; y del candidato: salario, horas, ubicación,
+radio, secreto y openings. Verificado por tests con **control positivo** — el
+detector debe encontrar el commitment y el nullifier, que sí están.
+
+**Sí es público:** la banda, los términos, el commitment de la empresa, los
+commitments del candidato, los nullifiers y el contador.
+
+## Consent Reveal
+
+No requiere circuito. La contraparte recomputa el commitment en TypeScript:
+
+```ts
+import { persistentCommit, CompactTypeUnsignedInteger } from '@midnight-ntwrk/compact-runtime';
+const u64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
+const recomputed = persistentCommit(u64, claimedValue, claimedOpening);
+// comparar contra candidateSalaryCommitments.lookup(nullifier)
+```
+
+Verificado en el E2E real contra la cadena, incluyendo que un valor alterado no
+valida.
+
+## Capa TypeScript
+
+`src/proofmatch-v2/` — paralela a `src/proofmatch/` (V1), que no se tocó:
+
+| Archivo | |
+|---|---|
+| `private-state.ts` | estado privado por contrato, un solo `privateStateId` |
+| `witnesses.ts` | los doce witnesses |
+| `contract.ts` | `CompiledContract` |
+| `deploy.ts` | deploy y join |
+| `public-state.ts` | lectura desde el indexer |
+| `service.ts` | capa de aplicación + preview local |
+
+`src/providers.ts` se reutiliza tal cual: ya era genérico.
+
+## Comandos
+
+```bash
+npm run compile:proofmatch-job-v2
+npm run test:e2e:v2                # E2E real contra devnet
+```
+
+## Fuera de scope en esta etapa
+
+Sin frontend, sin Private Match Profile multi-job, sin Consent Reveal UX, sin
+Match Pass, sin Privacy Receipt. Etapas 2 y 3.
