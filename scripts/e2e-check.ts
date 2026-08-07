@@ -16,6 +16,7 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment } from '../src/network';
 import { createWallet, persistWalletState } from '../src/wallet';
+import { createMidnightProviders, LOCAL_PRIVATE_STATE_PASSWORD } from '../src/providers';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 
 // @ts-expect-error wallet sync requires WebSocket
@@ -71,33 +72,14 @@ async function main() {
   // when run against the same persistent wallet directory.
   await persistWalletState(network, walletCtx);
 
-  const zkConfigProvider = new NodeZkConfigProvider(zkConfigPath);
-  const walletProvider = {
-    // Midnight.js 4.1.x returns the key objects (CoinPublicKey / EncPublicKey).
-    getCoinPublicKey: () => walletCtx.shieldedSecretKeys.coinPublicKey,
-    getEncryptionPublicKey: () => walletCtx.shieldedSecretKeys.encryptionPublicKey,
-    async balanceTx() {
-      throw new Error('e2e-check is read-only and should not balance transactions');
-    },
-    submitTx() {
-      throw new Error('e2e-check is read-only and should not submit transactions');
-    },
-  } as any;
-
-  const providers = {
-    privateStateProvider: levelPrivateStateProvider({
-      privateStateStoreName: 'hello-world-state',
-      accountId: walletCtx.unshieldedKeystore.getBech32Address().toString(),
-      // SDK requires ≥16 chars. e2e-check is read-only so we don't expose
-      // the env-var override here — match the deploy script's local-devnet default.
-      privateStoragePasswordProvider: () => 'Local-Devnet-Development-Placeholder-1',
-    }),
-    publicDataProvider: indexerPublicDataProvider(networkConfig.indexer, networkConfig.indexerWS),
-    zkConfigProvider,
-    proofProvider: httpClientProofProvider(networkConfig.proofServer, zkConfigProvider),
-    walletProvider,
-    midnightProvider: walletProvider,
-  };
+  const providers = createMidnightProviders({
+    walletCtx,
+    networkConfig,
+    zkConfigPath,
+    privateStateStoreName: 'hello-world-state',
+    privateStatePassword: LOCAL_PRIVATE_STATE_PASSWORD,
+    readOnly: true,
+  });
 
   // 3. Reconnect to the deployed contract — proves callTx interface is wired
   try {
