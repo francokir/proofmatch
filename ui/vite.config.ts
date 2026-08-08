@@ -14,7 +14,9 @@ const require = createRequire(import.meta.url);
  *
  * V1 and V2 publish differently named circuits, so both key sets can live under
  * one origin without colliding and a single `FetchZkConfigProvider` base URL
- * serves either contract.
+ * serves either contract. V2Q REUSES V2's circuit names (plus its own
+ * attestQualification), so its assets are published under a `v2q/` prefix and
+ * the facade points a second provider set at that base.
  */
 const zkAssetSources = [
   {
@@ -32,10 +34,29 @@ const zkAssetSources = [
       'zkir/proveGuaranteedMatch.bzkir',
     ],
   },
+  {
+    root: new URL('../contracts/managed/proofmatch-job-v2q/', import.meta.url),
+    prefix: 'v2q/',
+    assets: [
+      'keys/lockPrivateBudget.prover',
+      'keys/lockPrivateBudget.verifier',
+      'zkir/lockPrivateBudget.bzkir',
+      'keys/proveGuaranteedMatch.prover',
+      'keys/proveGuaranteedMatch.verifier',
+      'zkir/proveGuaranteedMatch.bzkir',
+      'keys/attestQualification.prover',
+      'keys/attestQualification.verifier',
+      'zkir/attestQualification.bzkir',
+    ],
+  },
 ] as const;
 
 const zkAssetRoots = new Map<string, URL>(
-  zkAssetSources.flatMap(({ root, assets }) => assets.map((asset) => [asset, new URL(asset, root)])),
+  zkAssetSources.flatMap(({ root, assets, ...rest }) =>
+    assets.map(
+      (asset) => [`${'prefix' in rest ? rest.prefix : ''}${asset}`, new URL(asset, root)] as const,
+    ),
+  ),
 );
 
 function serveProofMatchZkAssets(): Plugin {

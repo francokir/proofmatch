@@ -14,6 +14,8 @@ export interface ConfiguredProofMatchV2 {
   readonly api: ProofMatchV2UiApi;
   /** Vacancies known at startup. Deploying from the UI adds more. */
   readonly seedJobs: readonly string[];
+  /** True when the credential bridge is configured (verified qualifications). */
+  readonly qualificationAvailable: boolean;
 }
 
 function seedJobsFrom(environment: ImportMetaEnv): string[] {
@@ -30,6 +32,11 @@ function configuredEnvironment(environment: ImportMetaEnv): ConfiguredProofMatch
   // recruiter panel, which is part of what the stage has to demonstrate.
   if (!networkId || !privateStatePassword) return undefined;
 
+  // The credential bridge is optional: without it the studio runs exactly the
+  // pre-qualification V2 experience; with it, vacancies can require a
+  // verified English level and candidates can hold a real credential.
+  const bridgeUrl = environment.VITE_PROOFMATCH_QUALIFICATION_BRIDGE_URL?.trim();
+
   return {
     api: createProofMatchV2UiApi({
       networkId,
@@ -37,8 +44,10 @@ function configuredEnvironment(environment: ImportMetaEnv): ConfiguredProofMatch
       privateStateStoreName:
         environment.VITE_PROOFMATCH_V2_PRIVATE_STATE_STORE_NAME ?? V2_PRIVATE_STATE_STORE_NAME,
       privateStatePassword,
+      qualification: bridgeUrl ? { bridgeUrl } : undefined,
     }),
     seedJobs: seedJobsFrom(environment),
+    qualificationAvailable: Boolean(bridgeUrl),
   };
 }
 

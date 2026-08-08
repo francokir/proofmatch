@@ -8,6 +8,8 @@ export type {
   V2JobPreview,
   V2Profile,
   V2PublicJobState,
+  V2CredentialSummary,
+  V2QualificationRequirement,
   V2RevealPackage,
   V2RevealVerdict,
   WalletStatus,

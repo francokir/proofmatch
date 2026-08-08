@@ -9,4 +9,6 @@ interface ImportMetaEnv {
   /** Comma-separated V2 vacancies to track at startup. Public addresses. */
   readonly VITE_PROOFMATCH_V2_JOBS?: string;
   readonly VITE_PROOFMATCH_V2_PRIVATE_STATE_STORE_NAME?: string;
+  /** ProofMatch credential bridge (verified qualifications). */
+  readonly VITE_PROOFMATCH_QUALIFICATION_BRIDGE_URL?: string;
 }
