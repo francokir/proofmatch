@@ -17,6 +17,7 @@ import {
   resetCandidateV2PrivateState,
 } from '../private-state';
 import { decodeRevealPackage, encodeRevealPackage } from '../consent-reveal';
+import { candidateInputsFromProfile, previewPrivateFit } from '../service';
 import { createBrowserProfileStore } from './profile-store';
 import { connectProofMatchV2, type ConnectProofMatchV2Options, type ProofMatchV2Client } from './client';
 import type { ProofMatchV2PublicState } from '../public-state';
@@ -81,6 +82,54 @@ function projectPublicState(
     salaryCommitmentCount: BigInt(state.candidateSalaryCommitments.size()),
     hoursCommitmentCount: BigInt(state.candidateHoursCommitments.size()),
   };
+}
+
+/**
+ * Rebuilds the on-chain shape the shared preview expects.
+ *
+ * `budgetLocked` matters as much as the band: an unlocked vacancy can never
+ * yield a guaranteed match, because there is no committed cap to be guaranteed
+ * against. Leaving it out silently reported every vacancy as unlockable.
+ */
+function toPreviewState(job: V2PublicJobState): ProofMatchV2PublicState {
+  return {
+    jobId: new Uint8Array(32),
+    salaryBandFloor: job.salaryBandFloor,
+    salaryBandCeiling: job.salaryBandCeiling,
+    jobRequiredWeeklyHours: job.requiredWeeklyHours,
+    jobWorkMode: WORK_MODE_VALUES[job.workMode],
+    officeX: job.officeX,
+    officeY: job.officeY,
+    jobState: job.jobState === 'Open' ? JobState.OPEN : JobState.CLOSED,
+    budgetLocked: job.budgetLocked,
+  } as unknown as ProofMatchV2PublicState;
+}
+
+/**
+ * Local classification of several vacancies against one profile.
+ *
+ * Deliberately not a method on the connected client: it touches no network and
+ * proves nothing, so a candidate can weigh vacancies before ever connecting a
+ * wallet. It delegates to the shared Stage 2 logic, which mirrors the circuit
+ * exactly — including the commute boundary — so the two cannot drift.
+ */
+export function previewJobs(
+  jobs: readonly V2PublicJobState[],
+  profile: V2Profile,
+): V2JobPreview[] {
+  const candidate = candidateInputsFromProfile(toDomainProfile(profile));
+  return jobs.map((job) => {
+    const fit = previewPrivateFit(toPreviewState(job), candidate);
+    return {
+      contractAddress: job.contractAddress,
+      publicState: job,
+      salaryFit: fit.salaryFit,
+      hoursCompatible: fit.hoursCompatible,
+      workModeAccepted: fit.workModeAccepted,
+      commuteCompatible: fit.commuteCompatible,
+      canProveGuaranteedMatch: fit.canProveGuaranteedMatch,
+    };
+  });
 }
 
 function toDomainProfile(profile: V2Profile): PrivateMatchProfile {
@@ -257,36 +306,7 @@ export function createProofMatchV2UiApi(
       await profileStore.clear();
     },
 
-    previewJobs(jobs: readonly V2PublicJobState[], profile: V2Profile): V2JobPreview[] {
-      // Rebuilding the on-chain shape here keeps the classification in the
-      // shared Stage 2 code: the preview must agree with the circuit exactly,
-      // including the commute boundary, and a second implementation would drift.
-      const domainProfile = toDomainProfile(profile);
-      return jobs.map((job) => {
-        const publicState = {
-          jobId: new Uint8Array(32),
-          salaryBandFloor: job.salaryBandFloor,
-          salaryBandCeiling: job.salaryBandCeiling,
-          jobRequiredWeeklyHours: job.requiredWeeklyHours,
-          jobWorkMode: WORK_MODE_VALUES[job.workMode],
-          officeX: job.officeX,
-          officeY: job.officeY,
-        } as unknown as ProofMatchV2PublicState;
-        const [preview] = requireClient().service.previewJobs(
-          [{ contractAddress: job.contractAddress, publicState }],
-          domainProfile,
-        );
-        return {
-          contractAddress: job.contractAddress,
-          publicState: job,
-          salaryFit: preview.fit.salaryFit,
-          hoursCompatible: preview.fit.hoursCompatible,
-          workModeAccepted: preview.fit.workModeAccepted,
-          commuteCompatible: preview.fit.commuteCompatible,
-          canProveGuaranteedMatch: preview.fit.canProveGuaranteedMatch,
-        };
-      });
-    },
+    previewJobs,
 
     async proveGuaranteedMatch(contractAddress: string, profile: V2Profile): Promise<void> {
       const active = requireClient();
