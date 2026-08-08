@@ -41,7 +41,10 @@ export class MidnamesClient {
 
   constructor(options: MidnamesClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // Wrapped instead of stored bare: a detached `fetch` invoked as
+    // `this.fetchImpl(...)` gets the client as `this` and browsers reject it
+    // with "Illegal invocation" (same failure cross-fetch-browser.ts shims).
+    this.fetchImpl = options.fetchImpl ?? ((...args) => globalThis.fetch(...args));
   }
 
   private async post<T>(route: string, body: unknown): Promise<T> {
