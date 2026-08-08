@@ -82,7 +82,7 @@ export function V2Studio({ api, seedJobs }: { api: ProofMatchV2UiApi; seedJobs: 
 
   const connected = walletStatus === 'connected';
 
-  const report = (step: string, cause: unknown) => {
+  const report = (action: string, cause: unknown) => {
     // Names and messages only, walking the cause chain. Private terms, the
     // candidate secret and the openings never reach the console.
     const chain: string[] = [];
@@ -90,7 +90,7 @@ export function V2Studio({ api, seedJobs }: { api: ProofMatchV2UiApi; seedJobs: 
       chain.push(`${current.name}: ${current.message}`);
       current = current.cause;
     }
-    console.error(`[ProofMatch V2] ${step} failed —`, chain.join(' <- ') || String(cause));
+    console.error(`[ProofMatch V2] ${action} failed —`, chain.join(' <- ') || String(cause));
     setError(chain[0] ?? 'Something went wrong. Your private values remain local.');
   };
 
@@ -133,9 +133,9 @@ export function V2Studio({ api, seedJobs }: { api: ProofMatchV2UiApi; seedJobs: 
     [jobs, matched],
   );
 
-  const guard = async (label: string, action: () => Promise<void>) => {
+  const guard = async (label: string, run: () => Promise<void>) => {
     setBusy(true); setError('');
-    try { await action(); } catch (cause) { report(label, cause); } finally { setBusy(false); }
+    try { await run(); } catch (cause) { report(label, cause); } finally { setBusy(false); }
   };
 
   const connect = () => void guard('wallet connection', async () => {
