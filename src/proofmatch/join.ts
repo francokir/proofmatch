@@ -1,6 +1,6 @@
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 
-import { createMidnightProviders } from '../providers';
+import type { ProofMatchProviders } from '../providers';
 
 import { createProofMatchCompiledContract } from './contract';
 
@@ -16,7 +16,7 @@ export interface JoinProofMatchJobOptions {
  * contract-scoped value already stored by the private-state provider.
  */
 export async function joinProofMatchJob(
-  providers: ReturnType<typeof createMidnightProviders>,
+  providers: ProofMatchProviders,
   zkConfigPath: string,
   options: JoinProofMatchJobOptions,
 ) {

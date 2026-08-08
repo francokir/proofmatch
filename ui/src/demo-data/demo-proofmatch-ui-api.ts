@@ -1,0 +1,32 @@
+/** DEMO ONLY — NOT MIDNIGHT, NOT LACE, NOT REAL LEDGER DATA. */
+import type { ProofFlowStatus, ProofMatchUiApi, PublicJobState, WalletStatus } from '../domain/integration';
+
+const demoPublicState: PublicJobState = {
+  jobId: 'PM-AI-001',
+  jobMaximumCompensation: 1200n,
+  jobRequiredWeeklyHours: 20n,
+  jobState: 'Open',
+  matchCount: 3n,
+  usedNullifierCount: 3n,
+};
+
+let walletStatus: WalletStatus = 'not_detected';
+let proofStatus: ProofFlowStatus = 'idle';
+export const demoContractAddress = 'DEMO CONTRACT REFERENCE';
+
+export const demoProofMatchUiApi: ProofMatchUiApi = {
+  wallet: {
+    get status() { return walletStatus; },
+    // The demo shell has no extension behind it: it reports the simulated
+    // wallet as present so the header does not accuse Lace of being missing.
+    async detectWallet() { walletStatus = 'detected'; return walletStatus; },
+    injectedWallets() { return []; },
+    async connectWallet() { walletStatus = 'connecting'; await Promise.resolve(); walletStatus = 'connected'; },
+  },
+  async prepareCandidatePrivateState() { await Promise.resolve(); },
+  async proveMatch() { await Promise.resolve(); },
+  async readPublicState() { return demoPublicState; },
+  async refreshPublicState() { return demoPublicState; },
+  async resetCandidatePrivateState() { await Promise.resolve(); },
+  subscribeProofStatus(listener) { listener(proofStatus); return () => undefined; },
+};
