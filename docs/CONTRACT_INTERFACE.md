@@ -954,3 +954,95 @@ npx tsx scripts/proofmatch-v2-stage2-e2e.ts   # E2E real de Stage 2
 Todavía no tiene alias en `package.json` para no colisionar con los cambios de
 dependencias que Coqui tiene sin mergear. Conviene agregar
 `"test:e2e:v2:stage2"` cuando su rama entre.
+
+---
+
+# ProofMatchJobV2Q — vacante con Verified Qualification
+
+`contracts/proofmatch-job-v2q.compact`. Contrato **separado** de V2 a
+propósito: las vacantes sin requisito de credencial siguen usando
+`proofmatch-job-v2.compact` sin un byte de cambio. V2Q se despliega solo
+cuando la vacante exige una qualification verificada.
+
+Arquitectura completa y modelo de confianza: `docs/MIDNAMES_QUALIFICATION.md`.
+
+## Qué agrega sobre V2
+
+| | V2 | V2Q |
+|---|---|---|
+| Requisito de credencial | no existe | sellado: tipo + nivel mínimo + verifier |
+| Attestations | — | `HistoricMerkleTree<10, Bytes<32>>` de Q opacas |
+| Gate del match | 4 condiciones + nullifier | + posesión privada de una Q attestada |
+
+## Estado público agregado
+
+| Campo | Tipo | Sellado |
+|---|---|---|
+| `qualificationType` | `Bytes<32>` | sí — tag del tipo (`pad(32, "proofmatch:qual:english:v1")`) |
+| `requiredQualificationLevel` | `Uint<8>` | sí — CEFR 1..6; término público de la vacante, como la banda |
+| `qualificationVerifierKey` | `Bytes<32>` | sí — hash del secreto del verifier (patrón `employerAuthKey`) |
+| `qualificationAttestations` | `HistoricMerkleTree<10, Bytes<32>>` | no — el árbol guarda hash(hoja): ni la Q cruda queda pública |
+| `attestationCount` | `Counter` | no |
+
+Constructor: los 8 argumentos de V2 **más** `(qualType, requiredLevel,
+verifierKeyHash)`, con asserts `qualType != 0`, `1 <= requiredLevel <= 6`,
+`verifierKeyHash != 0`.
+
+## Circuitos
+
+### `attestQualification(q: Bytes<32>): []`
+
+Solo el verifier autorizado (conoce el secreto detrás de
+`qualificationVerifierKey`, dominio `proofmatch:v2q:verifier-key:v1`).
+Inserta `disclose(q)` en el árbol. El nivel exacto del candidato **no es un
+input**: la attestation ES la declaración "requisito cumplido", emitida tras
+la verificación off-chain vía Midnames.
+
+### `proveGuaranteedMatch(): []`
+
+Todo el cuerpo de V2 (transitividad salarial, horas, modalidad, commute,
+nullifier, commitments) más, **antes** de derivar el nullifier:
+
+```
+Q = persistentHash([pad(32,"proofmatch:qualification:v1"),
+                    kernel.self().bytes, qualificationType, qualificationSecret])
+path = findQualificationPath(Q)          // witness NO confiable
+assert path.leaf == Q                    // re-atado de la hoja
+assert qualificationAttestations.checkRoot(merkleTreePathRoot(disclose(path)))
+```
+
+El re-atado de la hoja es load-bearing: sin él, un witness malicioso puede
+devolver el camino de una hoja ajena y la membresía pasa. Está demostrado con
+el fixture `tests/fixtures/proofmatch-v2q-unbound-leaf.compact` (el mismo
+ataque PASA contra el fixture y FALLA contra el contrato real).
+
+La membresía por camino de Merkle mantiene privado **qué** attestation
+respaldó el match; un fallo del gate no consume el nullifier.
+
+## Witnesses (15)
+
+Los 12 de V2 más:
+
+| Witness | Rol |
+|---|---|
+| `qualificationVerifierSecret(): Bytes<32>` | verifier (solo el bridge) |
+| `candidateQualificationSecret(): Bytes<32>` | candidato — fresco por (vacante, tipo) |
+| `findQualificationPath(q): MerkleTreePath<10, Bytes<32>>` | candidato — lee el ledger; el circuito lo re-ata |
+
+## Capa TypeScript
+
+`src/proofmatch-v2/qualification/` — `levels` (CEFR), `derivation` (Q y
+verifier key off-chain, byte-idéntico al circuito), `contract` / `deploy` /
+`witnesses` / `private-state` / `public-state` / `service` (espejo de V2),
+`credential` + `midnames-client` + `holder` (lado credencial, browser-safe) y
+`bridge-server` (el verifier autorizado). Facade browser: dispatch dual
+V2/V2Q por sondeo de decodificación con sanity-gate.
+
+## Comandos
+
+```bash
+npm run compile:proofmatch-job-v2q
+node --import tsx --test tests/proofmatch-v2q.test.ts   # 45 tests simulador
+npm run qualification-bridge                            # daemon del verifier
+MIDNAMES_ISSUER_DID=<did> npm run test:e2e:v2q          # E2E real
+```
