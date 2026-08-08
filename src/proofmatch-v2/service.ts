@@ -1,4 +1,4 @@
-import type { createMidnightProviders } from '../providers';
+import type { ProofMatchProviders } from '../providers';
 import type { WorkMode } from '../../contracts/managed/proofmatch-job-v2/contract/index.js';
 
 import {
@@ -167,7 +167,9 @@ export function previewJobs(
   }));
 }
 
-type Providers = ReturnType<typeof createMidnightProviders>;
+// Same generic provider surface V1 uses: the browser supplies a fetch-based
+// ZK config provider, so pinning the concrete Node shape here would reject it.
+type Providers = ProofMatchProviders;
 
 /** Minimal shape of the deployed-contract handle this service drives. */
 interface DeployedV2Contract {

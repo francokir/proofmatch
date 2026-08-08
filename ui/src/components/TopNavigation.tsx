@@ -4,7 +4,7 @@ import type { View } from '../App';
 type Item = { label: string; view?: View };
 const items: Item[] = [
   { label: 'Home', view: 'home' }, { label: 'Job', view: 'job' }, { label: 'Private Match', view: 'private-match' },
-  { label: 'Match Pass', view: 'match-pass' }, { label: 'Recruiter', view: 'recruiter' }, { label: 'Ledger', view: 'ledger' },
+  { label: 'Match Pass', view: 'match-pass' }, { label: 'Recruiter', view: 'recruiter' }, { label: 'Ledger', view: 'ledger' }, { label: 'V2', view: 'v2' },
 ];
 
 export function TopNavigation({ activeView, onNavigate, onPlaceholder }: { activeView: View; onNavigate: (view: View) => void; onPlaceholder: () => void }) {

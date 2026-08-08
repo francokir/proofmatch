@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -164,5 +163,9 @@ export async function updatePrivateProfile(
  * its own randomness for per-job material.
  */
 export function freshOpening(): Uint8Array {
-  return Uint8Array.from(randomBytes(32));
+  // Web Crypto, not node:crypto: this module runs in the browser too,
+  // and both are CSPRNGs of the same strength.
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytes;
 }

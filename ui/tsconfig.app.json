@@ -20,7 +20,9 @@
     "baseUrl": ".",
     "paths": {
       "@proofmatch/browser-ui-api": ["../src/proofmatch/browser/ui-api.ts"],
-      "@proofmatch/browser-ui-contract": ["../src/proofmatch/browser/ui-contract.ts"]
+      "@proofmatch/browser-ui-contract": ["../src/proofmatch/browser/ui-contract.ts"],
+      "@proofmatch/v2-ui-api": ["../src/proofmatch-v2/browser/ui-api.ts"],
+      "@proofmatch/v2-ui-contract": ["../src/proofmatch-v2/browser/ui-contract.ts"]
     }
   },
   "include": ["src"]

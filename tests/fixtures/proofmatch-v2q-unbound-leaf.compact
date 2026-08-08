@@ -1,0 +1,432 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// FIXTURE ROTO A PROPOSITO --- copia de proofmatch-job-v2q.compact SIN el
+// assert que ata la hoja del camino de Merkle al Q derivado del secreto.
+// Existe para demostrar que el test del witness malicioso FALLARIA si el
+// contrato real perdiera ese assert. No es codigo de produccion.
+// vacante exige una qualification verificada (demo: English >= B2).
+//
+// Que agrega V2Q sobre V2:
+//
+//   1. Terminos sellados de qualification: tipo, nivel minimo requerido y la
+//      clave (hash) del verifier autorizado.
+//   2. attestQualification(q): el verifier autorizado registra una attestation
+//      OPACA Q. Q = Hash(dominio, direccion de la vacante, tipo, secreto del
+//      candidato). El nivel exacto del candidato NUNCA toca la cadena.
+//   3. proveGuaranteedMatch exige ademas la prueba de conocimiento del
+//      qualificationSecret detras de una Q attestada de ESTA vacante.
+//
+// MODELO DE CONFIANZA (honesto): la verificacion criptografica de la
+// credencial W3C (firma P-256 del issuer, DID, expiracion, revocacion) la
+// hace Midnames OFF-CHAIN. El verifier autorizado attesta Q solo despues de
+// esa verificacion y de evaluar nivel >= requerido. El circuito NO verifica
+// la firma de la VC: prueba la POSESION PRIVADA de una attestation propia,
+// especifica de esta vacante y de este tipo de qualification.
+//
+// NO DESPLEGAR fuera de devnet local: sin `closeJob`, una instancia queda en
+// JobState.OPEN para siempre. Los contratos de Midnight no son actualizables.
+//
+// SUPUESTO DE CONFIANZA: los `assert` del constructor corren en el cliente que
+// despliega; la cadena no los verifica. Los circuitos --- que si corren bajo
+// prueba --- revalidan lo que necesitan.
+
+export enum JobState {
+  OPEN,
+  CLOSED
+}
+
+export enum WorkMode {
+  REMOTE,
+  HYBRID,
+  ONSITE
+}
+
+// ─── Terminos publicos e inmutables ──────────────────────────────────────────
+
+export sealed ledger jobId: Bytes<32>;
+
+// La BANDA es publica; el techo exacto de la empresa NO. Un candidato ve el
+// rango, no el numero. Ver el comentario de `lockPrivateBudget`.
+export sealed ledger salaryBandFloor: Uint<64>;
+export sealed ledger salaryBandCeiling: Uint<64>;
+
+export sealed ledger jobRequiredWeeklyHours: Uint<8>;
+export sealed ledger jobWorkMode: WorkMode;
+
+// Ubicacion publica de la oficina, en metros sobre una grilla local.
+// Ver `commuteWithinRadius` para el porque de Uint<32>.
+export sealed ledger officeX: Uint<32>;
+export sealed ledger officeY: Uint<32>;
+
+// Hash del secreto de la empresa. Es lo unico que permite autorizar
+// `lockPrivateBudget`. No es criptografia de clave publica: es un hash con
+// domain separator, que es la unica forma segura de verificar el llamador de
+// un circuito en Compact.
+export sealed ledger employerAuthKey: Bytes<32>;
+
+// ─── Terminos sellados de qualification ──────────────────────────────────────
+
+// Etiqueta del tipo de qualification (p.ej. pad(32, "proofmatch:qual:english:v1")).
+// Entra en la derivacion de Q: una attestation de English no sirve para otro
+// tipo de qualification aunque compartan secreto.
+export sealed ledger qualificationType: Bytes<32>;
+
+// Nivel minimo requerido, en la escala del tipo (CEFR: A1=1 ... C2=6).
+// Es un termino PUBLICO de la vacante (como la banda salarial): el job board
+// lo muestra y el verifier lo lee de aca para evaluar la credencial.
+// El nivel exacto del candidato NO se publica nunca.
+export sealed ledger requiredQualificationLevel: Uint<8>;
+
+// Hash de la clave del verifier autorizado (mismo patron que employerAuthKey).
+// La empresa lo copia del verifier al desplegar. Solo quien conoce el secreto
+// detras de este hash puede attestar qualifications validas.
+export sealed ledger qualificationVerifierKey: Bytes<32>;
+
+// ─── Estado publico mutable ──────────────────────────────────────────────────
+
+export ledger jobState: JobState;
+
+// La empresa fijo su techo exacto y quedo comprometida a el.
+export ledger budgetLocked: Boolean;
+
+// Commit(techoExacto, opening). Publica un hash, no el valor. Permite que la
+// empresa revele su techo mas tarde y que el candidato verifique que es el
+// mismo que estaba vigente cuando hizo el match.
+export ledger employerBudgetCommitment: Bytes<32>;
+
+// Attestations opacas del verifier. HistoricMerkleTree y no Set a proposito:
+// el match prueba MEMBRESIA sin revelar QUE attestation uso, asi el par
+// (attestation, match) no queda linkeado en el ledger. Historic: un proof
+// generado contra una raiz anterior sigue valiendo aunque entren attestations
+// nuevas en el medio.
+export ledger qualificationAttestations: HistoricMerkleTree<10, Bytes<32>>;
+export ledger attestationCount: Counter;
+
+export ledger matchCount: Counter;
+export ledger usedNullifiers: Set<Bytes<32>>;
+
+// nullifier -> commitment. Se usa Map y no Set a proposito: con un Set solo se
+// podria probar que un valor se uso en ALGUN match de la vacante, no en el
+// propio. El Map ata cada commitment a su match.
+export ledger candidateSalaryCommitments: Map<Bytes<32>, Bytes<32>>;
+export ledger candidateHoursCommitments: Map<Bytes<32>, Bytes<32>>;
+
+// ─── Witnesses ───────────────────────────────────────────────────────────────
+//
+// Ninguno es codigo confiable: cada DApp puede implementarlos como quiera. Los
+// circuitos validan rango y compatibilidad sobre lo que devuelvan.
+
+// Empresa.
+witness employerSecret(): Bytes<32>;
+witness employerMaxCompensation(): Uint<64>;
+witness employerBudgetOpening(): Bytes<32>;
+
+// Verifier de qualifications.
+witness qualificationVerifierSecret(): Bytes<32>;
+
+// Candidato. Unidades: USD mensuales enteros y horas por semana.
+witness candidateMinimumCompensation(): Uint<64>;
+witness candidateAvailableWeeklyHours(): Uint<8>;
+witness candidateSecret(): Bytes<32>;
+witness candidateAcceptsWorkMode(mode: WorkMode): Boolean;
+witness candidateLocationX(): Uint<32>;
+witness candidateLocationY(): Uint<32>;
+witness candidateCommuteRadius(): Uint<32>;
+witness candidateSalaryOpening(): Bytes<32>;
+witness candidateHoursOpening(): Bytes<32>;
+witness candidateQualificationSecret(): Bytes<32>;
+
+// Camino de Merkle hacia la attestation propia. El witness es codigo NO
+// confiable: el circuito re-ata la hoja (`leaf == Q`) y la raiz
+// (`checkRoot`), asi que un camino ajeno o inventado no pasa.
+witness findQualificationPath(q: Bytes<32>): MerkleTreePath<10, Bytes<32>>;
+
+// ─── Derivaciones ────────────────────────────────────────────────────────────
+
+// Identidad de la empresa para esta vacante. Dominio propio, distinto del
+// nullifier y de cualquier commitment.
+circuit employerKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "proofmatch:v2:employer-key:v1"),
+    sk
+  ]);
+}
+
+// Identidad del verifier de qualifications. Dominio propio.
+circuit verifierKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "proofmatch:v2q:verifier-key:v1"),
+    sk
+  ]);
+}
+
+// Attestation opaca Q, especifica de vacante Y tipo de qualification.
+//
+// El contexto es `kernel.self()` --- la direccion de la instancia --- y no
+// `jobId`, por la misma razon que el nullifier: una vacante senuelo con el
+// mismo jobId derivaria la misma Q y permitiria correlacionar attestations
+// entre contratos. La direccion no se puede elegir para colisionar.
+//
+// Q no revela nada del candidato: es un hash con un secreto fresco de 32
+// bytes que el candidato genera SOLO para esta vacante y este tipo.
+circuit qualificationTag(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "proofmatch:qualification:v1"),
+    kernel.self().bytes,
+    qualificationType,
+    secret
+  ]);
+}
+
+// Nullifier especifico de este candidato en ESTA vacante.
+//
+// El contexto es `kernel.self()` --- la direccion de la instancia --- y
+// deliberadamente NO `jobId`: `jobId` lo elige quien despliega y puede
+// repetirse, asi que una vacante senuelo con el mismo jobId produciria el mismo
+// nullifier y permitiria reconocer o bloquear al candidato. La direccion es
+// Sha256(estado inicial, nonce): no se puede elegir para colisionar.
+circuit jobNullifier(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "proofmatch:v2:job-nullifier:v1"),
+    kernel.self().bytes,
+    sk
+  ]);
+}
+
+// Valor absoluto de una diferencia. Compact aborta si una resta da negativo y
+// no ofrece abs(), asi que se elige el orden antes de restar.
+circuit absDiff(a: Uint<32>, b: Uint<32>): Uint<32> {
+  return a >= b ? a - b : b - a;
+}
+
+// ¿El candidato vive dentro de su radio aceptable respecto de la oficina?
+//
+// Se compara la distancia AL CUADRADO para no necesitar raiz cuadrada. Los
+// tipos: con Uint<32> (metros), dx*dx tiene cota 2^64 y la suma 2^65, muy por
+// debajo del maximo representable. Verificado contra el compilador: Uint<64>
+// tambien compila (cota 2^129) y Uint<128> ya es error estatico. Uint<32> cubre
+// 4.294 km de rango, de sobra, con margen enorme.
+//
+// La suma y la multiplicacion de Uint no pueden desbordar en Compact: el tipo
+// del resultado se ensancha solo.
+circuit commuteWithinRadius(
+  cx: Uint<32>, cy: Uint<32>, ox: Uint<32>, oy: Uint<32>, radius: Uint<32>
+): Boolean {
+  const dx = absDiff(cx, ox);
+  const dy = absDiff(cy, oy);
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+// ─── Constructor ─────────────────────────────────────────────────────────────
+
+constructor(
+  id: Bytes<32>,
+  bandFloor: Uint<64>,
+  bandCeiling: Uint<64>,
+  requiredWeeklyHours: Uint<8>,
+  mode: WorkMode,
+  ox: Uint<32>,
+  oy: Uint<32>,
+  employerSk: Bytes<32>,
+  qualType: Bytes<32>,
+  requiredLevel: Uint<8>,
+  verifierKeyHash: Bytes<32>
+) {
+  assert(id != default<Bytes<32>>, "ProofMatch: jobId must not be the zero identifier");
+  assert(bandFloor > 0, "ProofMatch: salaryBandFloor must be greater than zero");
+  assert(bandCeiling > bandFloor, "ProofMatch: salaryBandCeiling must exceed salaryBandFloor");
+  // La banda no puede ser tan angosta que equivalga a publicar el techo exacto.
+  // La resta es segura: ya se comprobo bandCeiling > bandFloor.
+  assert(bandCeiling - bandFloor >= 300, "ProofMatch: salary band must be at least 300 wide");
+  assert(requiredWeeklyHours > 0, "ProofMatch: jobRequiredWeeklyHours must be greater than zero");
+  assert(requiredWeeklyHours <= 168, "ProofMatch: jobRequiredWeeklyHours must not exceed 168");
+  assert(employerSk != default<Bytes<32>>, "ProofMatch: employer secret not initialized");
+  // V2Q existe SOLO para vacantes con requisito: nivel en la escala 1..6.
+  assert(qualType != default<Bytes<32>>, "ProofMatch: qualification type not initialized");
+  assert(requiredLevel >= 1, "ProofMatch: required qualification level out of range");
+  assert(requiredLevel <= 6, "ProofMatch: required qualification level out of range");
+  assert(verifierKeyHash != default<Bytes<32>>, "ProofMatch: verifier key not initialized");
+
+  jobId = disclose(id);
+  salaryBandFloor = disclose(bandFloor);
+  salaryBandCeiling = disclose(bandCeiling);
+  jobRequiredWeeklyHours = disclose(requiredWeeklyHours);
+  jobWorkMode = disclose(mode);
+  officeX = disclose(ox);
+  officeY = disclose(oy);
+  // Se publica el hash del secreto, nunca el secreto.
+  employerAuthKey = disclose(employerKey(employerSk));
+  qualificationType = disclose(qualType);
+  requiredQualificationLevel = disclose(requiredLevel);
+  // El hash del verifier ya es publico (lo publica el propio verifier).
+  qualificationVerifierKey = disclose(verifierKeyHash);
+
+  jobState = JobState.OPEN;
+  budgetLocked = false;
+}
+
+// ─── Circuito 1: la empresa fija su techo privado ────────────────────────────
+//
+// Identico a V2. Prueba, sin revelar el techo exacto E:
+//
+//   floor <= E <= ceiling
+//
+// y publica Commit(E, opening). A partir de ahi la empresa queda atada: no
+// puede cambiar E despues sin que el commitment deje de validar.
+
+export circuit lockPrivateBudget(): [] {
+  assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
+  assert(!budgetLocked, "ProofMatch: budget already locked");
+
+  // Revalidar los terminos publicos: el constructor no lo garantiza on-chain.
+  assert(jobId != default<Bytes<32>>, "ProofMatch: malformed job terms");
+  assert(salaryBandFloor > 0, "ProofMatch: malformed job terms");
+  assert(salaryBandCeiling > salaryBandFloor, "ProofMatch: malformed job terms");
+  assert(salaryBandCeiling - salaryBandFloor >= 300, "ProofMatch: malformed job terms");
+
+  // Autorizacion: solo quien conoce el secreto cuyo hash quedo en el ledger.
+  const _sk = employerSecret();
+  assert(_sk != default<Bytes<32>>, "ProofMatch: employer secret not initialized");
+  assert(employerAuthKey == employerKey(_sk), "ProofMatch: not authorized to lock budget");
+
+  const _cap = employerMaxCompensation();
+  const _opening = employerBudgetOpening();
+  assert(_opening != default<Bytes<32>>, "ProofMatch: employer opening not initialized");
+
+  // El techo real tiene que estar dentro de la banda publicada. Esto es lo que
+  // hace utilizable la transitividad del match: candidato <= floor <= E.
+  assert(_cap >= salaryBandFloor, "ProofMatch: employer cap below band floor");
+  assert(_cap <= salaryBandCeiling, "ProofMatch: employer cap above band ceiling");
+
+  // `persistentCommit` no necesita `disclose`: el opening aleatorio ya impide
+  // recuperar el valor, asi que el compilador lo considera seguro de publicar.
+  employerBudgetCommitment = persistentCommit<Uint<64>>(_cap, _opening);
+  budgetLocked = true;
+}
+
+// ─── Circuito 2: el verifier attesta una qualification ───────────────────────
+//
+// Registra la attestation OPACA Q en el arbol. Corre bajo prueba: la
+// autorizacion (conocer el secreto detras de qualificationVerifierKey) queda
+// verificada en el circuito, no en codigo cliente.
+//
+// El verifier attesta Q SOLO despues de (off-chain, via Midnames):
+//   - verificar la firma y el DID del issuer de la credencial;
+//   - verificar validez / no-revocacion;
+//   - verificar el holder binding de la presentacion;
+//   - evaluar nivel de la credencial >= requiredQualificationLevel.
+//
+// Q no dice nada por si misma: sin el qualificationSecret privado, una Q
+// copiada del ledger no sirve para probar el match (ver circuito 3).
+
+export circuit attestQualification(q: Bytes<32>): [] {
+  assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
+  assert(q != default<Bytes<32>>, "ProofMatch: attestation must not be zero");
+
+  const _sk = qualificationVerifierSecret();
+  assert(_sk != default<Bytes<32>>, "ProofMatch: verifier secret not initialized");
+  assert(qualificationVerifierKey == verifierKey(_sk), "ProofMatch: not authorized to attest");
+
+  qualificationAttestations.insert(disclose(q));
+  attestationCount += 1;
+}
+
+// ─── Circuito 3: Guaranteed Match con qualification ──────────────────────────
+//
+// Todo lo de V2 (transitividad salarial, horas, modalidad, commute, nullifier,
+// commitments) MAS el gate de qualification: el candidato prueba que conoce el
+// qualificationSecret que deriva una Q attestada EN ESTA vacante y PARA ESTE
+// tipo de qualification. La membresia es por camino de Merkle: el ledger no
+// registra QUE attestation respaldo el match.
+//
+// El orden importa: el gate corre ANTES de derivar el nullifier, igual que el
+// resto de las condiciones --- un candidato sin attestation valida no consume
+// su nullifier y puede reintentar despues de conseguirla.
+
+export circuit proveGuaranteedMatch(): [] {
+  // 1. Revalidar terminos publicos dentro del circuito probado.
+  assert(jobState == JobState.OPEN, "ProofMatch: job is not open");
+  assert(budgetLocked, "ProofMatch: employer budget not locked");
+  assert(jobId != default<Bytes<32>>, "ProofMatch: malformed job terms");
+  assert(salaryBandFloor > 0, "ProofMatch: malformed job terms");
+  assert(salaryBandCeiling > salaryBandFloor, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours > 0, "ProofMatch: malformed job terms");
+  assert(jobRequiredWeeklyHours <= 168, "ProofMatch: malformed job terms");
+  assert(qualificationType != default<Bytes<32>>, "ProofMatch: malformed job terms");
+  assert(requiredQualificationLevel >= 1, "ProofMatch: malformed job terms");
+  assert(requiredQualificationLevel <= 6, "ProofMatch: malformed job terms");
+
+  // 2. Traer los valores privados del candidato.
+  const _salary = candidateMinimumCompensation();
+  const _hours = candidateAvailableWeeklyHours();
+  const _secret = candidateSecret();
+
+  // 3. Validar rangos antes de usarlos.
+  assert(_salary > 0, "ProofMatch: candidate compensation out of range");
+  assert(_hours > 0, "ProofMatch: candidate weekly hours out of range");
+  assert(_hours <= 168, "ProofMatch: candidate weekly hours out of range");
+  assert(_secret != default<Bytes<32>>, "ProofMatch: candidate secret not initialized");
+
+  // 4. Compatibilidad salarial garantizada: C <= floor.
+  assert(_salary <= salaryBandFloor, "ProofMatch: not a guaranteed salary match");
+
+  // 5. Disponibilidad.
+  assert(_hours >= jobRequiredWeeklyHours, "ProofMatch: weekly hours not compatible");
+
+  // 6. Modalidad de trabajo. El candidato prueba que acepta la modalidad de la
+  //    vacante sin publicar el resto de sus preferencias.
+  assert(candidateAcceptsWorkMode(jobWorkMode), "ProofMatch: work mode not accepted");
+
+  // 7. Commute. Solo para modalidades que requieren presencia: una vacante
+  //    REMOTE no tiene por que pedir la ubicacion del candidato.
+  //    La rama es sobre `jobWorkMode`, que es PUBLICO, asi que no filtra nada
+  //    del candidato.
+  if (jobWorkMode != WorkMode.REMOTE) {
+    const _cx = candidateLocationX();
+    const _cy = candidateLocationY();
+    const _radius = candidateCommuteRadius();
+    assert(_radius > 0, "ProofMatch: candidate commute radius out of range");
+    assert(commuteWithinRadius(_cx, _cy, officeX, officeY, _radius),
+           "ProofMatch: commute not compatible");
+  }
+
+  // 8. Gate de qualification: posesion privada de una attestation propia.
+  //    El witness del camino NO es confiable: se re-ata la hoja al Q derivado
+  //    y la raiz al arbol de ESTA vacante. Sin ambas ataduras, un camino de
+  //    otra hoja (o de otro arbol) pasaria la membresia.
+  const _qualificationSecret = candidateQualificationSecret();
+  assert(_qualificationSecret != default<Bytes<32>>,
+         "ProofMatch: qualification secret not initialized");
+  const _q = qualificationTag(_qualificationSecret);
+  const _attestationPath = findQualificationPath(_q);
+  // FIXTURE DELIBERADAMENTE ROTO: falta el re-atado de la hoja al Q derivado.
+  // assert(_attestationPath.leaf == _q, ...);  <-- la linea que este fixture rompe
+  assert(qualificationAttestations.checkRoot(
+           merkleTreePathRoot<10, Bytes<32>>(disclose(_attestationPath))),
+         "ProofMatch: qualification not attested for this job");
+
+  // 9. Uso unico. Se deriva DESPUES de todas las condiciones: un candidato
+  //    incompatible no consume su nullifier y puede reintentar.
+  const _nullifier = jobNullifier(_secret);
+  assert(!usedNullifiers.member(disclose(_nullifier)),
+         "ProofMatch: candidate already matched this job");
+
+  // 10. Commitments de los valores usados en ESTE match, atados al nullifier.
+  //     Openings independientes por campo: reutilizarlos permitiria correlacionar
+  //     los dos commitments.
+  const _salaryOpening = candidateSalaryOpening();
+  const _hoursOpening = candidateHoursOpening();
+  assert(_salaryOpening != default<Bytes<32>>, "ProofMatch: salary opening not initialized");
+  assert(_hoursOpening != default<Bytes<32>>, "ProofMatch: hours opening not initialized");
+  assert(_salaryOpening != _hoursOpening, "ProofMatch: commitment openings must differ");
+
+  // 11. Mutaciones publicas, solo despues de que TODO lo anterior paso.
+  usedNullifiers.insert(disclose(_nullifier));
+  candidateSalaryCommitments.insert(
+    disclose(_nullifier), persistentCommit<Uint<64>>(_salary, _salaryOpening));
+  candidateHoursCommitments.insert(
+    disclose(_nullifier), persistentCommit<Uint<8>>(_hours, _hoursOpening));
+  matchCount += 1;
+}
