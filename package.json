@@ -6,10 +6,11 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "compile": "npm run compile:hello-world && npm run compile:proofmatch-job && npm run compile:proofmatch-job-v2",
+    "compile": "npm run compile:hello-world && npm run compile:proofmatch-job && npm run compile:proofmatch-job-v2 && npm run compile:proofmatch-job-v2q",
     "compile:hello-world": "compact compile contracts/hello-world.compact contracts/managed/hello-world",
     "compile:proofmatch-job": "compact compile contracts/proofmatch-job.compact contracts/managed/proofmatch-job",
     "compile:proofmatch-job-v2": "compact compile contracts/proofmatch-job-v2.compact contracts/managed/proofmatch-job-v2",
+    "compile:proofmatch-job-v2q": "compact compile contracts/proofmatch-job-v2q.compact contracts/managed/proofmatch-job-v2q",
     "build": "npx tsc --noEmit || true",
     "setup": "npx tsx src/setup.ts",
     "deploy": "npx tsx src/deploy.ts",
