@@ -24,6 +24,8 @@
     "test:contract": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e-check.ts",
     "test:e2e:v2": "tsx scripts/proofmatch-v2-e2e.ts",
+    "test:e2e:v2q": "tsx scripts/proofmatch-v2q-e2e.ts",
+    "qualification-bridge": "tsx scripts/qualification-bridge.ts",
     "test:e2e:proofmatch": "tsx scripts/proofmatch-e2e.ts"
   },
   "dependencies": {
