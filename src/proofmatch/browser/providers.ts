@@ -3,6 +3,7 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 import { createLaceMidnightProvider, createLaceWalletProvider } from './lace';
 
@@ -22,6 +23,11 @@ export async function createLaceBrowserProviders(
   privateStatePassword: string,
 ) {
   const configuration = await connected.getConfiguration();
+  // Must happen before any wallet, ledger or contract call: the SDK keeps the
+  // network id in module state that starts unset, and `getNetworkId()` throws
+  // rather than defaulting. The headless path does this inside `createWallet`;
+  // in the browser the value comes from the wallet, so it lands here.
+  setNetworkId(configuration.networkId);
   if (!configuration.proverServerUri) throw new NonLocalProverError('Lace did not provide a prover server URI.');
   assertLocalProverUrl(configuration.proverServerUri);
   const walletProvider = await createLaceWalletProvider(connected, configuration.networkId);

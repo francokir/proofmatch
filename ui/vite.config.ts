@@ -56,6 +56,12 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('./src/integration/browser-runtime.ts', import.meta.url)),
       },
       {
+        // cross-fetch hands out an unbound window.fetch, which throws
+        // "Illegal invocation" from strict-mode ES modules. See the shim.
+        find: /^cross-fetch$/,
+        replacement: fileURLToPath(new URL('./src/integration/cross-fetch-browser.ts', import.meta.url)),
+      },
+      {
         find: '@proofmatch/browser-ui-api',
         replacement: fileURLToPath(new URL('../src/proofmatch/browser/ui-api.ts', import.meta.url)),
       },

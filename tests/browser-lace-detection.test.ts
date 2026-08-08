@@ -49,6 +49,15 @@ describe('Lace detection', () => {
     assert.equal(findLaceInitialApi(fakeWindow({ laceMidnight: laceV4 })), laceV4);
   });
 
+  it('finds the real Lace build, which registers under a UUID key', () => {
+    // Observed in Chrome with Lace installed: the connector is NOT under
+    // `mnLace`, it is under a random UUID, and identifies itself through
+    // rdns/name. Keying detection on `mnLace` alone would miss it entirely.
+    const realLace = { apiVersion: '4.0.1', name: 'lace', rdns: 'io.lace.wallet', connect: async () => ({}) };
+    const wallets = { '4c39fc0a-d706-4bdd-b94f-bcf953d354b2': realLace };
+    assert.equal(findLaceInitialApi(fakeWindow(wallets)), realLace);
+  });
+
   it('survives a malformed neighbour and still finds the good Lace', () => {
     // `window.midnight` is third-party territory. A junk entry used to throw
     // while reading `apiVersion`, which hid a perfectly usable wallet.
