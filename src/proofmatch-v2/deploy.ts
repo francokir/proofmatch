@@ -1,7 +1,7 @@
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 
-import type { createMidnightProviders } from '../providers';
+import type { ProofMatchProviders } from '../providers';
 import type { WorkMode } from '../../contracts/managed/proofmatch-job-v2/contract/index.js';
 
 import { createProofMatchV2CompiledContract } from './contract';
@@ -27,7 +27,7 @@ export interface DeployProofMatchV2JobOptions {
  * afterwards against the real returned contract address.
  */
 export async function deployProofMatchV2Job(
-  providers: ReturnType<typeof createMidnightProviders>,
+  providers: ProofMatchProviders,
   zkConfigPath: string,
   options: DeployProofMatchV2JobOptions,
 ) {
@@ -60,7 +60,7 @@ export interface JoinProofMatchV2JobOptions {
  * contract-scoped value already held by the private-state provider.
  */
 export async function joinProofMatchV2Job(
-  providers: ReturnType<typeof createMidnightProviders>,
+  providers: ProofMatchProviders,
   zkConfigPath: string,
   options: JoinProofMatchV2JobOptions,
 ) {

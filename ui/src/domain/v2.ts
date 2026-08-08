@@ -1,0 +1,15 @@
+export type {
+  InjectedWalletSummary,
+  ProofFlowStatus,
+  ProofMatchV2UiApi,
+  RevealField,
+  SalaryFit,
+  V2DeployJobInput,
+  V2JobPreview,
+  V2Profile,
+  V2PublicJobState,
+  V2RevealPackage,
+  V2RevealVerdict,
+  WalletStatus,
+  WorkModeName,
+} from '@proofmatch/v2-ui-contract';

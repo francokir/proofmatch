@@ -6,4 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_PROOFMATCH_ZK_CONFIG_BASE_URL?: string;
   readonly VITE_PROOFMATCH_PRIVATE_STATE_PASSWORD?: string;
   readonly VITE_PROOFMATCH_PRIVATE_STATE_STORE_NAME?: string;
+  /** Comma-separated V2 vacancies to track at startup. Public addresses. */
+  readonly VITE_PROOFMATCH_V2_JOBS?: string;
+  readonly VITE_PROOFMATCH_V2_PRIVATE_STATE_STORE_NAME?: string;
 }

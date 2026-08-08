@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 
 import type { ContractAddress } from '@midnight-ntwrk/midnight-js-protocol/compact-runtime';
 import type { PrivateStateProvider } from '@midnight-ntwrk/midnight-js-types';
@@ -61,7 +60,11 @@ export type ProofMatchV2StateProvider = PrivateStateProvider<
  * public, so a guessable secret lets anyone recompute it and learn who applied.
  */
 function fresh32(): Uint8Array {
-  return Uint8Array.from(randomBytes(32));
+  // Web Crypto, not node:crypto: this module runs in the browser too,
+  // and both are CSPRNGs of the same strength.
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytes;
 }
 
 function require32(bytes: Uint8Array | undefined, label: string): Uint8Array {
@@ -129,6 +132,21 @@ export async function prepareCandidateV2PrivateState(
     candidateSalaryOpening: existing.candidateSalaryOpening ?? fresh32(),
     candidateHoursOpening: existing.candidateHoursOpening ?? fresh32(),
   });
+}
+
+/**
+ * Reads the stored record without modifying it.
+ *
+ * Callers that need to recover material they wrote earlier — the employer
+ * secret between deploying and locking, or an opening for a later reveal —
+ * go through here instead of reaching for the provider, so the private-state
+ * shape stays owned by this module.
+ */
+export async function readV2PrivateState(
+  provider: ProofMatchV2StateProvider,
+  contractAddress: ContractAddress,
+): Promise<ProofMatchV2PrivateState> {
+  return load(provider, contractAddress);
 }
 
 /** Merges the employer's exact cap, its opening and the authorisation secret. */

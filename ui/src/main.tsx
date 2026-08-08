@@ -4,10 +4,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { configuredProofMatchUi } from './integration/browser';
+import { configuredProofMatchV2 } from './integration/browser-v2';
 import './styles/globals.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App api={configuredProofMatchUi?.api} contractAddress={configuredProofMatchUi?.contractAddress} />
+    <App api={configuredProofMatchUi?.api} contractAddress={configuredProofMatchUi?.contractAddress} v2={configuredProofMatchV2} />
   </StrictMode>,
 );
